@@ -21,7 +21,7 @@ const { execFile, execFileSync } = require('child_process');
 const ROOT = __dirname;
 loadEnvFile(path.join(ROOT, '.env'));
 
-const { sanitizeParams, buildPrompt, variantLabel } = require('./lib/prompt');
+const { sanitizeParams, buildPrompt, variantLabel, styleFor } = require('./lib/prompt');
 const { createGuard } = require('./lib/guard');
 const OPTIONS = require('./public/js/options');
 const rules = require('./public/js/guard-rules');
@@ -238,7 +238,9 @@ function publicJob(job) {
 async function generateOne(job, i, photo, ctx) {
   if (job.mock) {
     await sleep(2500 + Math.random() * 3500);
-    return { url: `/img/photos/${job.params.style}-${(i % 5) + 1}.jpg`, watermarked: false };
+    // Стиль «Подберём сами»: у каждого варианта свой стиль — показываем первое фото этого стиля.
+    const n = job.params.style === 'auto' ? 1 : (i % 5) + 1;
+    return { url: `/img/photos/${styleFor(job.params, i)}-${n}.jpg`, watermarked: false };
   }
 
   const dir = path.join(GENERATED_DIR, job.id);
@@ -359,7 +361,7 @@ async function captchaOk(token, ip) {
 }
 
 // ---------- Telegram ----------
-async function notifyTelegram(text, photoUrl) {
+async function notifyTelegram(text, photoUrls) {
   if (!CFG.tgToken || !CFG.tgChat) return;
   const base = `https://api.telegram.org/bot${CFG.tgToken}`;
   const post = (method, payload) =>
@@ -370,11 +372,11 @@ async function notifyTelegram(text, photoUrl) {
       signal: AbortSignal.timeout(10000),
     });
   try {
-    if (photoUrl && /^https:\/\/.+\.(jpe?g|png|webp)$/i.test(photoUrl)) {
-      const r = await post('sendPhoto', { chat_id: CFG.tgChat, photo: photoUrl, caption: text.slice(0, 1000) });
-      if (r.ok) return;
-    }
-    await post('sendMessage', { chat_id: CFG.tgChat, text });
+    // Картинки Telegram забирает по ссылке, поэтому нужен публичный https-адрес сайта (PUBLIC_URL).
+    const photos = (photoUrls || []).filter((u) => /^https:\/\/.+\.(jpe?g|png|webp)$/i.test(u)).slice(0, 10);
+    if (photos.length === 1) await post('sendPhoto', { chat_id: CFG.tgChat, photo: photos[0] });
+    if (photos.length > 1) await post('sendMediaGroup', { chat_id: CFG.tgChat, media: photos.map((u) => ({ type: 'photo', media: u })) });
+    await post('sendMessage', { chat_id: CFG.tgChat, text: text.slice(0, 4000) });
   } catch (e) {
     console.error('Telegram недоступен:', e.message);
   }
@@ -397,11 +399,11 @@ async function handleCreateJob(req, res, ip) {
   if (!(await captchaOk(body.captcha, ip))) return sendJson(res, 400, { error: 'Подтвердите, что вы не робот.' });
   if (remainingFor(ip) <= 0) {
     return sendJson(res, 429, {
-      error: `На сегодня лимит исчерпан: ${CFG.dailyLimitPerIp} генерации в сутки. Оставьте заявку на замер — подберём варианты вместе.`,
+      error: `На сегодня лимит исчерпан: ${CFG.dailyLimitPerIp} генерации в сутки. Приходите завтра или позвоните нам.`,
     });
   }
   if (usage.total >= CFG.globalDailyLimit) {
-    return sendJson(res, 429, { error: 'Сегодня генератор перегружен. Оставьте заявку на замер, и мы пришлём варианты сами.' });
+    return sendJson(res, 429, { error: 'Сегодня генератор перегружен. Попробуйте завтра или позвоните нам.' });
   }
 
   let photo;
@@ -423,7 +425,7 @@ async function handleCreateJob(req, res, ip) {
     mock: CFG.mock,
     withPhoto: Boolean(photo),
     status: 'checking',
-    images: Array.from({ length: CFG.imagesPerJob }, (_, i) => ({ index: i, label: variantLabel(i), status: 'pending' })),
+    images: Array.from({ length: CFG.imagesPerJob }, (_, i) => ({ index: i, label: variantLabel(i, params), status: 'pending' })),
   };
   jobs.set(job.id, job);
   console.log(`[${job.id}] новая задача${photo ? ' (с фото)' : ''}: ${JSON.stringify(params)}${wishes.text ? ` пожелания: ${wishes.text}` : ''}`);
@@ -448,15 +450,23 @@ async function handleLead(req, res, ip) {
   const count = usage.leadsPerIp.get(ip) || 0;
   if (count >= 10) return sendJson(res, 429, { error: 'Слишком много заявок с этого устройства. Позвоните нам.' });
 
-  const { name = '', phone = '', address = '', time = '', works = [], consent, jobId, imageIndex } = body;
+  const { name = '', phone = '', address = '', time = '', works = [], consent, jobId } = body;
   const cleanName = String(name).trim().slice(0, 80);
   const digits = String(phone).replace(/\D/g, '');
   if (!cleanName) return sendJson(res, 400, { error: 'Укажите имя.' });
   if (digits.length < 10 || digits.length > 15) return sendJson(res, 400, { error: 'Проверьте номер телефона.' });
   if (consent !== true) return sendJson(res, 400, { error: 'Нужно согласие на обработку данных.' });
 
+  // Замер заказывается только по выбранным вариантам: без них заявку не принимаем.
   const job = jobId ? jobs.get(String(jobId)) : null;
-  const image = job && Number.isInteger(imageIndex) ? job.images[imageIndex] : null;
+  if (!job) {
+    return sendJson(res, 400, { error: 'Не нашли ваши варианты — возможно, прошло больше суток. Сгенерируйте варианты заново или позвоните нам.' });
+  }
+  const rawIndexes = Array.isArray(body.imageIndexes) ? body.imageIndexes : Number.isInteger(body.imageIndex) ? [body.imageIndex] : [];
+  const picked = [...new Set(rawIndexes)]
+    .filter((i) => Number.isInteger(i) && job.images[i] && job.images[i].status === 'done' && job.images[i].url)
+    .sort((a, b) => a - b);
+  if (!picked.length) return sendJson(res, 400, { error: 'Выберите хотя бы один вариант — нажмите «Выбрать» под картинкой.', field: 'variants' });
   const abs = (u) => (u ? (/^https?:/.test(u) ? u : `${CFG.publicUrl}${u}`) : null);
   const workIds = (Array.isArray(works) ? works : []).map(String).filter((id) => OPTIONS.groups.works.items.some((x) => x.id === id));
 
@@ -467,11 +477,10 @@ async function handleLead(req, res, ip) {
     address: String(address).trim().slice(0, 160),
     time: TIMES[time] ? time : '',
     works: workIds,
-    params: job ? job.params : null,
-    wishes: job ? job.wishes : '',
-    source: job ? abs(job.sourceUrl) : null,
-    image: image && image.url ? abs(image.url) : null,
-    variant: image ? image.label : null,
+    params: job.params,
+    wishes: job.wishes,
+    source: abs(job.sourceUrl),
+    variants: picked.map((i) => ({ number: i + 1, label: job.images[i].label, image: abs(job.images[i].url) })),
   };
   fs.appendFileSync(path.join(DATA_DIR, 'leads.jsonl'), JSON.stringify(lead) + '\n');
   usage.leadsPerIp.set(ip, count + 1);
@@ -494,10 +503,10 @@ async function handleLead(req, res, ip) {
   }
   if (lead.wishes) lines.push(`Пожелания: ${lead.wishes}`);
   if (lead.works.length) lines.push(`Ещё сделать: ${lead.works.map((id) => labelOf('works', id)).join(', ')}`);
-  if (lead.variant) lines.push('', `Выбранный вариант: ${lead.variant}`);
-  if (lead.image) lines.push(lead.image);
-  if (lead.source) lines.push(`Фото помещения клиента: ${lead.source}`);
-  notifyTelegram(lines.join('\n'), lead.image);
+  lines.push('', lead.variants.length > 1 ? `Выбранные варианты (${lead.variants.length}):` : 'Выбранный вариант:');
+  lead.variants.forEach((v) => lines.push(`${v.number}. ${v.label}${v.image ? ` — ${v.image}` : ''}`));
+  if (lead.source) lines.push('', `Фото помещения клиента: ${lead.source}`);
+  notifyTelegram(lines.join('\n'), lead.variants.map((v) => v.image));
 
   sendJson(res, 200, { ok: true });
 }

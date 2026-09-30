@@ -245,6 +245,20 @@ a { color: var(--glaze); text-underline-offset: 3px; }
   box-shadow: 0 0 0 2px #fff;
 }
 
+/* «Подберём сами» — всегда первый пункт группы, на всю ширину */
+.choice--auto { grid-column: 1 / -1; }
+.choices .choice--auto .choice__body {
+  flex-direction: row; align-items: center; gap: 12px; padding: 12px 40px 12px 14px;
+  background: var(--porcelain); border-style: dashed; border-radius: var(--radius-control);
+}
+.choice--auto .choice__icon {
+  flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%;
+  background: var(--surface); border: 1px solid var(--line); color: var(--brass);
+}
+.choices .choice--auto .choice__text { display: flex; flex-direction: column; gap: 2px; padding: 0; }
+.choices .choice--auto input:checked + .choice__body { border-style: solid; background: var(--glaze-tint); box-shadow: inset 0 0 0 1px var(--glaze); }
+.chip--auto span { border-style: dashed; }
+
 /* Стиль — карточки с фото */
 .choices--photo { gap: 10px; }
 .choices--photo .choice__body { padding: 0; overflow: hidden; border-radius: var(--radius-card); }
@@ -406,10 +420,25 @@ a { color: var(--glaze); text-underline-offset: 3px; }
 }
 @media (min-width: 900px) { .order__card { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 40px; padding: 32px; } }
 .order__intro p { margin: 0 0 16px; color: var(--mist); max-width: 46ch; }
-.order__chosen { display: flex; gap: 14px; align-items: center; padding: 12px; border-radius: var(--radius-card); background: var(--porcelain); font-size: 14px; color: var(--mist); }
-.order__chosen .thumb { position: relative; flex: none; width: 120px; border-radius: 8px; overflow: hidden; }
-.order__chosen .thumb img:not(.wm) { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
-.order__chosen strong { display: block; color: var(--ink); font-size: 15px; }
+.order__chosen { padding: 14px; border-radius: var(--radius-card); background: var(--porcelain); font-size: 14px; color: var(--mist); }
+.order__chosen p { margin: 0; }
+.order__chosen-empty { color: var(--ink); }
+.order__chosen-title { font-weight: 600; color: var(--ink); margin-bottom: 10px !important; }
+.chosen-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+.chosen-item { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.chosen-item .thumb { position: relative; display: block; }
+.chosen-item .thumb img:not(.wm) { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
+.chosen-item .thumb .wm { width: 44%; min-width: 0; }
+.chosen-item__label { display: block; padding: 8px 10px 10px; font-weight: 500; color: var(--ink); font-size: 14px; line-height: 1.3; }
+.chosen-item__label small { display: block; font-weight: 400; color: var(--mist); font-size: 12px; }
+.chosen-item__remove {
+  position: absolute; top: 6px; right: 6px; width: 30px; height: 30px; display: grid; place-items: center;
+  border: 0; border-radius: 50%; background: rgba(255, 255, 255, 0.94); color: var(--ink); cursor: pointer;
+}
+.chosen-item__remove:hover { color: var(--error); }
+.order__hint { margin: -4px 0 0; font-size: 14px; color: var(--mist); text-align: center; }
+.results__actions { display: flex; flex-wrap: wrap; gap: 10px; }
+@media (max-width: 560px) { .results__actions { width: 100%; } .results__actions .btn { flex: 1; } }
 .order__fields { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; }
 .field--wide { grid-column: 1 / -1; }
 @media (max-width: 560px) { .order__fields { grid-template-columns: 1fr; } }

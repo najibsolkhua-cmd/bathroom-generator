@@ -3,7 +3,8 @@
   'use strict';
 
   const CFG = Object.assign({ companyName: '', phone: '', apiBase: '' }, window.APP_CONFIG || {});
-  const { groups: G, steps: STEPS, wishHints, sizeAllows, WISHES_MAX } = window.BATH_OPTIONS;
+  const { groups: G, steps: STEPS, wishHints, sizeAllows, autoStyles, variantLabel, WISHES_MAX } = window.BATH_OPTIONS;
+  const AUTO_ICON = '<svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20"><path d="M12 3l1.8 4.7L18.5 9l-4.7 1.8L12 15.5l-1.8-4.7L5.5 9l4.7-1.3zM18.5 14l.9 2.3 2.3.9-2.3.9-.9 2.3-.9-2.3-2.3-.9 2.3-.9z" fill="currentColor"/></svg>';
   const GUARD = window.BathGuard;
   const query = new URLSearchParams(location.search);
   const API = (query.get('api') || CFG.apiBase || '').replace(/\/$/, '');
@@ -72,7 +73,7 @@
     jobId: null,
     images: [],
     figs: [],
-    picked: null,
+    picked: [], // номера выбранных вариантов для замера
     viewing: null,
     captchaWidget: null,
   };
@@ -117,15 +118,19 @@
     let items;
     if (multi) {
       items = `<div class="chips">${g.items
-        .map((it) => `<label class="chip"><input type="checkbox" name="${key}" value="${it.id}"${g.default.includes(it.id) ? ' checked' : ''}><span>${esc(it.label)}</span></label>`)
+        .map((it) => `<label class="chip${it.id === 'auto' ? ' chip--auto' : ''}"><input type="checkbox" name="${key}" value="${it.id}"${g.default.includes(it.id) ? ' checked' : ''}><span>${esc(it.label)}</span></label>`)
         .join('')}</div>`;
     } else {
       let cls = g.view === 'photo' ? 'choices choices--photo' : g.view === 'swatch' ? 'choices choices--swatch' : g.view === 'metal' ? 'choices choices--metal' : 'choices';
-      if (g.items.length === 6) cls += ' choices--three';
+      if (g.items.filter((it) => it.id !== 'auto').length === 6) cls += ' choices--three';
       items = `<div class="${cls}">${g.items
         .map((it) => {
           const checked = g.default === it.id ? ' checked' : '';
           let body = '';
+          if (it.id === 'auto') {
+            body = `<span class="choice__icon">${AUTO_ICON}</span><span class="choice__text"><span class="choice__label">${esc(it.label)}</span>${it.note ? `<span class="choice__note">${esc(it.note)}</span>` : ''}</span>`;
+            return `<label class="choice choice--auto"><input type="radio" name="${key}" value="auto"${checked}><span class="choice__body">${body}</span></label>`;
+          }
           if (g.view === 'photo') {
             body = `<span class="choice__img"><img src="${it.img}-sm.jpg" alt="" loading="lazy"></span><span class="choice__text"><span class="choice__label">${esc(it.label)}</span>${it.note ? `<span class="choice__note">${esc(it.note)}</span>` : ''}</span>`;
           } else if (g.view === 'swatch') {
@@ -190,6 +195,7 @@
       const fallback = roomType === 'wc' ? 'none' : G.bathing.default;
       $(`input[name="bathing"][value="${fallback}"]`, els.wizard).checked = true;
     }
+    if (!$('input[name="extras"]:checked', els.wizard)) $('input[name="extras"][value="auto"]', els.wizard).checked = true;
   }
 
   function validateStep(i) {
@@ -235,7 +241,20 @@
     if (i > state.step && !validateStep(state.step)) return;
     goTo(i, true);
   });
+  // В группах с несколькими пунктами «Подберём сами» снимает остальные и наоборот; пусто — снова «Подберём сами».
+  function syncAuto(target) {
+    const g = G[target.name];
+    if (!g || g.type !== 'multi') return;
+    const boxes = $$(`input[name="${target.name}"]`, els.wizard);
+    const auto = boxes.find((b) => b.value === 'auto');
+    if (!auto) return;
+    if (target === auto && auto.checked) boxes.forEach((b) => b !== auto && (b.checked = false));
+    else if (target !== auto && target.checked) auto.checked = false;
+    if (!boxes.some((b) => b.checked)) auto.checked = true;
+  }
+
   els.wizard.addEventListener('change', (e) => {
+    syncAuto(e.target);
     if (e.target.name === 'size' || e.target.name === 'roomType') applyConstraints();
     renderSummary();
   });
@@ -404,7 +423,7 @@
       els.limitNote.textContent =
         state.remaining > 0
           ? `Осталось генераций сегодня: ${state.remaining}. Обычно это занимает 2–3 минуты.`
-          : 'На сегодня генерации закончились. Оставьте заявку на замер — подберём варианты вместе.';
+          : 'На сегодня генерации закончились. Приходите завтра или позвоните нам.';
     } else {
       els.limitNote.textContent = 'Обычно генерация занимает 2–3 минуты.';
     }
@@ -577,7 +596,7 @@
       }
       const pick = $('.pick', fig);
       pick.hidden = im.status !== 'done';
-      const on = state.picked === i;
+      const on = state.picked.includes(i);
       pick.setAttribute('aria-pressed', String(on));
       pick.textContent = on ? 'Выбран' : 'Выбрать';
       fig.classList.toggle('is-picked', on);
@@ -586,20 +605,38 @@
   }
 
   function togglePick(i) {
-    state.picked = state.picked === i ? null : i;
+    if (!state.images[i] || state.images[i].status !== 'done') return;
+    state.picked = state.picked.includes(i) ? state.picked.filter((x) => x !== i) : [...state.picked, i].sort((a, b) => a - b);
     renderGallery();
     renderChosen();
   }
 
+  // Выбранные варианты в форме замера. Без выбранного варианта заказать замер нельзя.
   function renderChosen() {
-    if (state.picked === null) {
-      els.orderChosen.innerHTML = '<span class="order__chosen-empty">Отметьте понравившийся вариант выше — прораб возьмёт его за основу.</span>';
+    const n = state.picked.length;
+    els.orderBtn.disabled = n === 0;
+    $('#orderHint').hidden = n > 0;
+    const toOrder = $('#toOrderBtn');
+    if (toOrder) toOrder.textContent = n ? `Заказать замер (${n})` : 'Заказать замер';
+    if (!n) {
+      els.orderChosen.innerHTML = '<p class="order__chosen-empty">Выберите один или несколько вариантов выше кнопкой «Выбрать» под картинкой. Без выбранного варианта заказать замер нельзя.</p>';
       return;
     }
-    const im = state.images[state.picked];
-    els.orderChosen.innerHTML = `<span class="thumb"><img src="${im.thumb || im.src}" alt="">${wmTag(im)}</span>
-      <span><strong>Вариант ${state.picked + 1}. ${esc(im.label)}</strong>Прораб посмотрит его перед замером и посчитает стоимость.</span>`;
+    els.orderChosen.innerHTML = `<p class="order__chosen-title">${n === 1 ? 'Выбран 1 вариант' : `Выбрано вариантов: ${n}`}</p>
+      <ul class="chosen-list">${state.picked
+        .map((i) => {
+          const im = state.images[i];
+          return `<li class="chosen-item"><span class="thumb"><img src="${im.thumb || im.src}" alt="">${wmTag(im)}</span>
+            <span class="chosen-item__label">Вариант ${i + 1}<small>${esc(im.label)}</small></span>
+            <button type="button" class="chosen-item__remove" data-i="${i}" aria-label="Убрать вариант ${i + 1}">
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2"/></svg></button></li>`;
+        })
+        .join('')}</ul>`;
   }
+  els.orderChosen.addEventListener('click', (e) => {
+    const b = e.target.closest('.chosen-item__remove');
+    if (b) togglePick(Number(b.dataset.i));
+  });
 
   // ---------- Просмотр ----------
   const doneIndexes = () => state.images.map((im, i) => (im.status === 'done' ? i : -1)).filter((i) => i >= 0);
@@ -617,7 +654,10 @@
     els.viewerImg.alt = `Вариант ${i + 1}: ${im.label}`;
     els.viewerWm.hidden = Boolean(im.watermarked);
     els.viewerCaption.textContent = `Вариант ${i + 1}. ${im.label}`;
-    els.viewerPick.textContent = state.picked === i ? 'Выбран — заказать замер' : 'Выбрать этот вариант';
+    const on = state.picked.includes(i);
+    els.viewerPick.textContent = on ? 'Выбран — убрать из заказа' : 'Выбрать для замера';
+    els.viewerPick.classList.toggle('btn--ghost', on);
+    els.viewerPick.classList.toggle('btn--primary', !on);
     const many = doneIndexes().length > 1;
     $('#viewerPrev').hidden = !many;
     $('#viewerNext').hidden = !many;
@@ -631,13 +671,10 @@
   $('#viewerPrev').addEventListener('click', () => stepViewer(-1));
   $('#viewerNext').addEventListener('click', () => stepViewer(1));
   $('#viewerClose').addEventListener('click', () => els.viewer.close());
+  // В просмотре можно отметить сразу несколько вариантов, листая их.
   els.viewerPick.addEventListener('click', () => {
-    state.picked = state.viewing;
-    renderGallery();
-    renderChosen();
-    els.viewer.close();
-    els.order.hidden = false;
-    scrollTo(els.order);
+    togglePick(state.viewing);
+    renderViewer();
   });
   els.viewer.addEventListener('click', (e) => {
     if (e.target === els.viewer) els.viewer.close();
@@ -679,7 +716,7 @@
     await Promise.all(
       state.images.map(async (im, i) => {
         await sleep(1600 + i * 900 + Math.random() * 700);
-        const base = `img/photos/${params.style}-${(i % 5) + 1}`;
+        const base = params.style === 'auto' ? `img/photos/${autoStyles[i % autoStyles.length]}-1` : `img/photos/${params.style}-${(i % 5) + 1}`;
         im.src = `${base}.jpg`;
         im.thumb = `${base}-sm.jpg`;
         im.status = 'done';
@@ -753,10 +790,10 @@
     const params = readParams();
     showResultError('');
     showPhotoError('');
-    state.picked = null;
+    state.picked = [];
     state.jobId = null;
     state.images = Array.from({ length: state.count }, (_, i) => ({
-      label: ['Точно по вашему выбору', 'Другая раскладка плитки', 'С акцентной стеной', 'Больше хранения', 'Вечерний свет'][i % 5],
+      label: variantLabel(i, params.style),
       status: 'pending',
     }));
     els.gallery.innerHTML = '';
@@ -797,6 +834,11 @@
     }
   }
 
+  $('#toOrderBtn').addEventListener('click', () => {
+    els.order.hidden = false;
+    scrollTo(els.order);
+  });
+
   $('#againBtn').addEventListener('click', () => {
     goTo(1, true);
   });
@@ -811,12 +853,16 @@
     f.name.setAttribute('aria-invalid', String(!name));
     f.phone.setAttribute('aria-invalid', String(digits.length < 10));
     let problem = '';
-    if (!name) problem = 'Укажите имя.';
+    if (!state.picked.length) problem = 'Выберите хотя бы один вариант — нажмите «Выбрать» под картинкой.';
+    else if (!name) problem = 'Укажите имя.';
     else if (digits.length < 10) problem = 'Проверьте номер телефона: нужно не меньше 10 цифр.';
     else if (!f.consent.checked) problem = 'Отметьте согласие на обработку данных.';
     els.orderError.textContent = problem;
     els.orderError.hidden = !problem;
-    if (problem) return;
+    if (problem) {
+      if (!state.picked.length) scrollTo(els.results);
+      return;
+    }
 
     const fd = new FormData(els.orderForm);
     const payload = {
@@ -827,7 +873,7 @@
       works: fd.getAll('works'),
       consent: true,
       jobId: state.jobId,
-      imageIndex: state.picked,
+      imageIndexes: state.picked,
     };
     els.orderBtn.disabled = true;
     els.orderBtn.textContent = 'Отправляем…';
@@ -842,21 +888,22 @@
       $$('.order__fields > :not(.order__done)', els.orderForm).forEach((el) => (el.hidden = true));
       els.orderDone.textContent =
         state.mode === 'demo'
-          ? 'Демо-режим: заявка не отправлена. На рабочем сайте она сразу придёт менеджеру в Telegram вместе с выбранным вариантом и фото помещения.'
+          ? 'Демо-режим: заявка не отправлена. На рабочем сайте она сразу придёт менеджеру в Telegram вместе с выбранными вариантами и фото помещения.'
           : `Заявка на замер принята. ${name}, позвоним в течение рабочего дня, чтобы согласовать время.`;
       els.orderDone.hidden = false;
     } catch (err) {
       els.orderError.textContent = err.message || 'Не удалось отправить заявку. Позвоните нам.';
       els.orderError.hidden = false;
     } finally {
-      els.orderBtn.disabled = false;
       els.orderBtn.textContent = 'Заказать замер';
+      els.orderBtn.disabled = !state.picked.length;
     }
   });
 
   // ---------- Старт ----------
   buildSteps();
   applyConstraints();
+  renderChosen();
   goTo(0);
   updateWishes();
   detectMode();

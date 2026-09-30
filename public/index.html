@@ -37,7 +37,7 @@
   </header>
 
   <div class="demo-note" id="demoNote" hidden>
-    <div class="wrap" id="demoNoteText">Демо-режим: вместо генерации показываем примеры в выбранном стиле, заявки никуда не отправляются.</div>
+    <div class="wrap" id="demoNoteText">Демо-режим Solk: вместо генерации показываем примеры в выбранном стиле, заявки никуда не отправляются.</div>
   </div>
 
   <main id="top">
@@ -167,7 +167,7 @@
         <div class="results__head">
           <div>
             <h2 class="section-title">Ваши варианты</h2>
-            <p class="results__sub" id="resultsSub">Нажмите на картинку, чтобы рассмотреть. Отметьте ту, что нравится.</p>
+            <p class="results__sub" id="resultsSub">Нажмите на картинку, чтобы рассмотреть. Отметьте один или несколько вариантов для замера.</p>
           </div>
           <div class="results__source" id="resultsSource" hidden>
             <img id="resultsSourceImg" alt="Ваше фото">
@@ -189,7 +189,10 @@
 
         <div class="results__foot" id="resultsFoot" hidden>
           <p class="disclaimer">Это визуализация идеи. Точные материалы, размеры и смету подготовит прораб после замера.</p>
-          <button type="button" class="btn btn--ghost" id="againBtn">Изменить параметры</button>
+          <div class="results__actions">
+            <button type="button" class="btn btn--ghost" id="againBtn">Изменить параметры</button>
+            <button type="button" class="btn btn--primary" id="toOrderBtn">Заказать замер</button>
+          </div>
         </div>
       </div>
     </section>
@@ -200,10 +203,8 @@
         <form class="order__card" id="orderForm" novalidate>
           <div class="order__intro">
             <h2 class="section-title">Заказать замер</h2>
-            <p>Прораб приедет, измерит помещение, подскажет по материалам и посчитает стоимость ремонта по выбранному варианту.</p>
-            <div class="order__chosen" id="orderChosen">
-              <span class="order__chosen-empty">Отметьте понравившийся вариант выше — прораб возьмёт его за основу.</span>
-            </div>
+            <p>Прораб приедет, измерит помещение, подскажет по материалам и посчитает стоимость ремонта по выбранным вариантам.</p>
+            <div class="order__chosen" id="orderChosen"></div>
           </div>
           <div class="order__fields">
             <label class="field"><span>Имя</span><input type="text" name="name" autocomplete="name" maxlength="80" required></label>
@@ -227,7 +228,8 @@
               <span>Согласен на обработку персональных данных по <a href="privacy.html" target="_blank" rel="noopener">политике конфиденциальности</a></span>
             </label>
             <p class="field-error field--wide" id="orderError" role="alert" hidden></p>
-            <button type="submit" class="btn btn--primary btn--large field--wide" id="orderBtn">Заказать замер</button>
+            <button type="submit" class="btn btn--primary btn--large field--wide" id="orderBtn" disabled>Заказать замер</button>
+            <p class="order__hint field--wide" id="orderHint">Сначала выберите хотя бы один вариант выше.</p>
             <p class="order__done field--wide" id="orderDone" hidden></p>
           </div>
         </form>

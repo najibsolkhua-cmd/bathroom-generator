@@ -4,6 +4,8 @@
  * id вариантов должны совпадать с TEXT в lib/prompt.js — проверка: node scripts/check-options.js
  * Группы с prompt: false в нейросеть не уходят (например, работы для сметы).
  * minSize — вариант доступен только начиная с этой площади.
+ * В каждой группе первый вариант — «Подберём сами» (id auto): по умолчанию выбран он,
+ * поэтому клиент может пройти все шаги, просто нажимая «Далее».
  */
 (function (root, factory) {
   const data = factory();
@@ -17,8 +19,9 @@
       title: 'Что ремонтируем',
       summary: 'Помещение',
       type: 'single',
-      default: 'combined',
+      default: 'auto',
       items: [
+        { id: 'auto', label: 'Подберём сами', note: 'определим по фото' },
         { id: 'bath', label: 'Ванная комната', note: 'отдельно от туалета' },
         { id: 'combined', label: 'Совмещённый санузел', note: 'ванная и туалет вместе' },
         { id: 'wc', label: 'Туалет', note: 'отдельный санузел' },
@@ -28,8 +31,9 @@
       title: 'Площадь',
       hint: 'Примерно. От площади зависит, что поместится.',
       type: 'single',
-      default: 's',
+      default: 'auto',
       items: [
+        { id: 'auto', label: 'Подберём сами', note: 'оценим по фото' },
         { id: 'xs', label: 'до 3 м²' },
         { id: 's', label: '3–5 м²' },
         { id: 'm', label: '5–8 м²' },
@@ -39,9 +43,10 @@
     style: {
       title: 'Стиль',
       type: 'single',
-      default: 'minimal',
+      default: 'auto',
       view: 'photo',
       items: [
+        { id: 'auto', label: 'Подберём сами', note: 'покажем 5 разных стилей' },
         { id: 'minimal', label: 'Минимализм', note: 'чистые линии, ничего лишнего', img: 'img/photos/minimal-1' },
         { id: 'scandi', label: 'Сканди', note: 'белая плитка и светлое дерево', img: 'img/photos/scandi-1' },
         { id: 'japandi', label: 'Джапанди', note: 'дерево и камень, как в спа', img: 'img/photos/japandi-1' },
@@ -54,9 +59,10 @@
       title: 'Цветовая гамма',
       summary: 'Цвет',
       type: 'single',
-      default: 'light',
+      default: 'auto',
       view: 'swatch',
       items: [
+        { id: 'auto', label: 'Подберём сами', note: 'под выбранный стиль', colors: ['#F0E6D8', '#BDB6AB', '#7C9582'] },
         { id: 'light', label: 'Светлая', colors: ['#F4F4F1', '#DEE0DC', '#BFC3BE'] },
         { id: 'warm', label: 'Тёплая бежевая', colors: ['#F0E6D8', '#D9C3A5', '#A9885F'] },
         { id: 'greige', label: 'Серо-бежевая', colors: ['#E4E0D9', '#BDB6AB', '#8C857B'] },
@@ -71,7 +77,7 @@
       type: 'single',
       default: 'auto',
       items: [
-        { id: 'auto', label: 'Под стиль', note: 'подберём сами' },
+        { id: 'auto', label: 'Подберём сами', note: 'под выбранный стиль' },
         { id: 'large', label: 'Крупный керамогранит', note: '60×120, минимум швов' },
         { id: 'marble', label: 'Под мрамор' },
         { id: 'stone', label: 'Под бетон или камень' },
@@ -87,7 +93,7 @@
       default: 'auto',
       view: 'metal',
       items: [
-        { id: 'auto', label: 'Под стиль', color: 'linear-gradient(135deg,#D8DCDF 0 50%,#1F2224 50%)' },
+        { id: 'auto', label: 'Подберём сами', note: 'под выбранный стиль', color: 'linear-gradient(135deg,#D8DCDF 0 50%,#1F2224 50%)' },
         { id: 'chrome', label: 'Хром', color: 'linear-gradient(135deg,#F2F4F5,#AEB5BA 55%,#E6E9EB)' },
         { id: 'black', label: 'Чёрный матовый', color: '#232527' },
         { id: 'brass', label: 'Латунь', color: 'linear-gradient(135deg,#E3C58E,#B48A4A 60%,#D7B679)' },
@@ -97,8 +103,9 @@
     bathing: {
       title: 'Где мыться',
       type: 'single',
-      default: 'bathshower',
+      default: 'auto',
       items: [
+        { id: 'auto', label: 'Подберём сами', note: 'что лучше подойдёт помещению' },
         { id: 'bath', label: 'Ванна', note: 'встроенная, с экраном' },
         { id: 'bathshower', label: 'Ванна и душ', note: 'со стеклянной шторкой' },
         { id: 'walkin', label: 'Душ без поддона', note: 'трап в полу и стекло' },
@@ -110,10 +117,11 @@
     extras: {
       title: 'Что должно быть',
       summary: 'Нужно',
-      hint: 'Выберите всё нужное.',
+      hint: 'Выберите всё нужное или доверьтесь нам.',
       type: 'multi',
-      default: ['installation', 'hygienic', 'vanity', 'towel', 'hatch'],
+      default: ['auto'],
       items: [
+        { id: 'auto', label: 'Подберём сами' },
         { id: 'installation', label: 'Подвесной унитаз' },
         { id: 'hygienic', label: 'Гигиенический душ' },
         { id: 'vanity', label: 'Подвесная тумба с раковиной' },
@@ -132,8 +140,9 @@
     light: {
       title: 'Свет',
       type: 'multi',
-      default: ['spots', 'mirrorlight'],
+      default: ['auto'],
       items: [
+        { id: 'auto', label: 'Подберём сами' },
         { id: 'spots', label: 'Точечные светильники' },
         { id: 'linear', label: 'Световая линия на потолке' },
         { id: 'mirrorlight', label: 'Подсветка зеркала и ниш' },
@@ -144,8 +153,9 @@
       title: 'Уровень отделки',
       summary: 'Уровень',
       type: 'single',
-      default: 'comfort',
+      default: 'auto',
       items: [
+        { id: 'auto', label: 'Подберём сами', note: 'оптимально под стиль' },
         { id: 'economy', label: 'Эконом', note: 'керамика, акрил, хром' },
         { id: 'comfort', label: 'Комфорт', note: 'керамогранит, инсталляция, подсветка' },
         { id: 'business', label: 'Бизнес', note: 'крупный формат, скрытые смесители' },
@@ -186,10 +196,25 @@
     'Как в дорогом отеле',
   ];
 
+  // Стили для «Подберём сами»: каждый из 5 вариантов — в своём стиле.
+  const autoStyles = ['minimal', 'scandi', 'japandi', 'neoclassic', 'hotel'];
+
+  // Подписи пяти вариантов (одни и те же на сайте и на сервере).
+  const variants = ['Точно по вашему выбору', 'Другая раскладка плитки', 'С акцентной стеной', 'Больше хранения', 'Вечерний свет'];
+
+  function variantLabel(index, style) {
+    if (style === 'auto') {
+      const id = autoStyles[index % autoStyles.length];
+      return groups.style.items.find((x) => x.id === id).label;
+    }
+    return variants[index % variants.length];
+  }
+
+  // «Подберём сами» для площади не ограничивает варианты: итог проверит нейросеть по фото.
   function sizeAllows(minSize, size) {
-    if (!minSize) return true;
+    if (!minSize || size === 'auto') return true;
     return SIZE_ORDER.indexOf(size) >= SIZE_ORDER.indexOf(minSize);
   }
 
-  return { groups, steps, wishHints, sizeAllows, WISHES_MAX: 300 };
+  return { groups, steps, wishHints, sizeAllows, autoStyles, variants, variantLabel, WISHES_MAX: 300 };
 });

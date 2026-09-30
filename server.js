@@ -206,11 +206,17 @@ function sizeFor(photo) {
   return '1024x1024';
 }
 
-function applyWatermark(file, width) {
-  if (!IMAGEMAGICK) return Promise.resolve(false);
+function imageWidth(file) {
+  const [bin, pre] = IMAGEMAGICK === 'magick' ? ['magick', ['identify']] : ['identify', []];
+  return new Promise((resolve) => execFile(bin, [...pre, '-format', '%w', file], (err, out) => resolve(err ? 0 : Number(String(out).trim()) || 0)));
+}
+
+async function applyWatermark(file, fallbackWidth) {
+  if (!IMAGEMAGICK) return false;
+  const width = (await imageWidth(file)) || fallbackWidth;
   const wmWidth = Math.round(width * 0.26);
   const margin = Math.round(width * 0.025);
-  const args = [file, '(', CFG.watermarkFile, '-resize', `${wmWidth}x`, ')', '-gravity', 'southeast', '-geometry', `+${margin}+${margin}`, '-composite', '-quality', '88', file];
+  const args = [file, '(', CFG.watermarkFile, '-resize', `${wmWidth}x`, ')', '-gravity', 'southeast', '-geometry', `+${margin}+${margin}`, '-composite', '-quality', '90', file];
   return new Promise((resolve) => execFile(IMAGEMAGICK, args, (err) => resolve(!err)));
 }
 

@@ -3,25 +3,28 @@
  *
  * Что делает:
  * - раздаёт сайт из папки public/;
- * - принимает параметры (и необязательное фото), ставит задачу на генерацию;
- * - генерирует варианты через gpt-image-2 (через российский посредник API);
- * - сохраняет картинки у себя в папке generated/;
- * - ограничивает число генераций, принимает заявки и шлёт их в Telegram.
+ * - принимает фото клиента, конфигурацию и пожелания;
+ * - проверяет, что это ванная и что пожелания только про ванную (lib/guard.js);
+ * - генерирует 5 вариантов: промпт строится от фото и конфигурации (lib/prompt.js);
+ * - проверяет каждый результат, ставит водяной знак, сохраняет в generated/;
+ * - ограничивает число генераций, принимает заявки на замер и шлёт их в Telegram.
  *
  * Без ключа API (или с MOCK=1) сервер работает в тестовом режиме:
- * вместо картинок рисует эскизы, деньги не тратятся.
+ * вместо генерации показывает примеры фото в выбранном стиле, деньги не тратятся.
  */
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const crypto = require('crypto');
+const { execFile, execFileSync } = require('child_process');
 
 const ROOT = __dirname;
 loadEnvFile(path.join(ROOT, '.env'));
 
-const { sanitizeParams, buildPrompt, buildEditPrompt, variantLabel } = require('./lib/prompt');
+const { sanitizeParams, buildPrompt, variantLabel } = require('./lib/prompt');
+const { createGuard } = require('./lib/guard');
 const OPTIONS = require('./public/js/options');
-const sketch = require('./public/js/sketch');
+const rules = require('./public/js/guard-rules');
 
 // ---------- Настройки (берутся из файла .env) ----------
 const env = process.env;
@@ -31,9 +34,15 @@ const CFG = {
   apiKey: env.OPENAI_API_KEY || '',
   baseURL: (env.OPENAI_BASE_URL || 'https://api.proxyapi.ru/openai/v1').replace(/\/$/, ''),
   model: env.IMAGE_MODEL || 'gpt-image-2',
-  size: env.IMAGE_SIZE || '1536x1024',
-  quality: env.IMAGE_QUALITY || 'medium',
+  quality: env.IMAGE_QUALITY || 'high',
+  size: env.IMAGE_SIZE || 'auto', // auto — по пропорциям фото клиента
   outputFormat: env.IMAGE_FORMAT || 'jpeg',
+  inputFidelity: env.IMAGE_INPUT_FIDELITY || '', // high — если модель поддерживает (точнее сохраняет фото)
+  guardModel: env.GUARD_MODEL || 'gpt-5.4-mini',
+  guard: env.GUARD !== '0',
+  verifyOutput: env.VERIFY_OUTPUT !== '0',
+  watermark: env.WATERMARK !== '0',
+  watermarkFile: path.resolve(ROOT, env.WATERMARK_FILE || 'public/img/watermark.png'),
   imagesPerJob: clamp(Number(env.IMAGES_PER_JOB) || 5, 1, 5),
   maxParallel: clamp(Number(env.MAX_PARALLEL) || 4, 1, 10),
   dailyLimitPerIp: Number(env.DAILY_LIMIT_PER_IP) || 3,
@@ -54,6 +63,9 @@ const DATA_DIR = path.join(ROOT, 'data');
 fs.mkdirSync(GENERATED_DIR, { recursive: true });
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
+const guard = createGuard({ apiKey: CFG.apiKey, baseURL: CFG.baseURL, model: CFG.guardModel, enabled: CFG.guard && !CFG.mock });
+const IMAGEMAGICK = CFG.watermark && fs.existsSync(CFG.watermarkFile) ? detectImageMagick() : null;
+
 // ---------- Мелкие помощники ----------
 function loadEnvFile(file) {
   if (!fs.existsSync(file)) return;
@@ -71,6 +83,16 @@ function clamp(v, min, max) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const today = () => new Date().toISOString().slice(0, 10);
 
+function detectImageMagick() {
+  for (const bin of ['magick', 'convert']) {
+    try {
+      execFileSync(bin, ['-version'], { stdio: 'ignore' });
+      return bin;
+    } catch {}
+  }
+  return null;
+}
+
 function clientIp(req) {
   const remote = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
   // Заголовкам верим, только если запрос пришёл от Nginx на этом же сервере.
@@ -82,9 +104,8 @@ function clientIp(req) {
 }
 
 function sendJson(res, status, data) {
-  const body = JSON.stringify(data);
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-  res.end(body);
+  res.end(JSON.stringify(data));
 }
 
 function readJson(req, limitBytes) {
@@ -111,6 +132,11 @@ function readJson(req, limitBytes) {
   });
 }
 
+function labelOf(group, id) {
+  const it = OPTIONS.groups[group].items.find((x) => x.id === id);
+  return it ? it.label : id;
+}
+
 // ---------- Лимиты ----------
 const usage = { day: today(), perIp: new Map(), total: 0, leadsPerIp: new Map() };
 function rollDay() {
@@ -124,6 +150,10 @@ function rollDay() {
 function remainingFor(ip) {
   rollDay();
   return Math.max(0, CFG.dailyLimitPerIp - (usage.perIp.get(ip) || 0));
+}
+function refund(ip) {
+  usage.perIp.set(ip, Math.max(0, (usage.perIp.get(ip) || 1) - 1));
+  usage.total = Math.max(0, usage.total - 1);
 }
 
 // ---------- Очередь: не больше maxParallel запросов к API одновременно ----------
@@ -150,7 +180,7 @@ async function callImagesApi(endpoint, body, isForm) {
       method: 'POST',
       headers,
       body: isForm ? body() : JSON.stringify(body),
-      signal: AbortSignal.timeout(6 * 60 * 1000),
+      signal: AbortSignal.timeout(8 * 60 * 1000),
     });
     const text = await res.text();
     let data = null;
@@ -159,13 +189,35 @@ async function callImagesApi(endpoint, body, isForm) {
     } catch {}
     if (res.ok && data) return data;
     const message = (data && data.error && data.error.message) || text.slice(0, 300);
-    const retry = res.status === 429 || res.status >= 500;
-    if (retry && attempt === 1) {
+    if ((res.status === 429 || res.status >= 500) && attempt === 1) {
       await sleep(4000);
       continue;
     }
     throw Object.assign(new Error(message), { status: res.status });
   }
+}
+
+// Размер картинки: по пропорциям фото клиента, без фото — вертикальный, как на Pinterest.
+function sizeFor(photo) {
+  if (CFG.size !== 'auto') return CFG.size;
+  if (!photo || !photo.w || !photo.h) return '1024x1536';
+  if (photo.h > photo.w * 1.1) return '1024x1536';
+  if (photo.w > photo.h * 1.1) return '1536x1024';
+  return '1024x1024';
+}
+
+function imageWidth(file) {
+  const [bin, pre] = IMAGEMAGICK === 'magick' ? ['magick', ['identify']] : ['identify', []];
+  return new Promise((resolve) => execFile(bin, [...pre, '-format', '%w', file], (err, out) => resolve(err ? 0 : Number(String(out).trim()) || 0)));
+}
+
+async function applyWatermark(file, fallbackWidth) {
+  if (!IMAGEMAGICK) return false;
+  const width = (await imageWidth(file)) || fallbackWidth;
+  const wmWidth = Math.round(width * 0.26);
+  const margin = Math.round(width * 0.025);
+  const args = [file, '(', CFG.watermarkFile, '-resize', `${wmWidth}x`, ')', '-gravity', 'southeast', '-geometry', `+${margin}+${margin}`, '-composite', '-quality', '90', file];
+  return new Promise((resolve) => execFile(IMAGEMAGICK, args, (err) => resolve(!err)));
 }
 
 // ---------- Задачи ----------
@@ -174,63 +226,96 @@ const jobs = new Map();
 function publicJob(job) {
   return {
     id: job.id,
-    status: job.status,
+    status: job.status, // checking → running → done | error | rejected
     mock: job.mock,
     withPhoto: job.withPhoto,
     error: job.error || null,
-    images: job.images.map((im) => ({ index: im.index, label: im.label, status: im.status, url: im.url || null })),
+    field: job.field || null,
+    images: job.images.map((im) => ({ index: im.index, label: im.label, status: im.status, url: im.url || null, watermarked: Boolean(im.watermarked) })),
   };
 }
 
-async function generateOne(job, i, photo) {
-  const dir = path.join(GENERATED_DIR, job.id);
-  fs.mkdirSync(dir, { recursive: true });
-
+async function generateOne(job, i, photo, ctx) {
   if (job.mock) {
-    await sleep(2500 + Math.random() * 4000);
-    const file = `${i + 1}.svg`;
-    fs.writeFileSync(path.join(dir, file), sketch.render(job.params, i));
-    return `/generated/${job.id}/${file}`;
+    await sleep(2500 + Math.random() * 3500);
+    return { url: `/img/photos/${job.params.style}-${(i % 5) + 1}.jpg`, watermarked: false };
   }
 
-  const prompt = photo ? buildEditPrompt(job.params, i) : buildPrompt(job.params, i);
+  const dir = path.join(GENERATED_DIR, job.id);
+  const size = sizeFor(photo);
   const fields = {
     model: CFG.model,
-    prompt,
-    size: CFG.size,
+    prompt: buildPrompt(job.params, i, ctx),
+    size,
     quality: CFG.quality,
     n: 1,
     output_format: CFG.outputFormat,
   };
-  if (CFG.outputFormat !== 'png') fields.output_compression = 85;
+  if (CFG.outputFormat !== 'png') fields.output_compression = 90;
+  if (photo && CFG.inputFidelity) fields.input_fidelity = CFG.inputFidelity;
 
-  const data = await withSlot(() => {
-    if (!photo) return callImagesApi('images/generations', fields, false);
-    return callImagesApi('images/edits', () => {
-      const form = new FormData();
-      for (const [k, v] of Object.entries(fields)) form.append(k, String(v));
-      form.append('image', new Blob([photo.buffer], { type: photo.mime }), `room.${photo.ext}`);
-      return form;
-    }, true);
-  });
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const data = await withSlot(() => {
+      if (!photo) return callImagesApi('images/generations', fields, false);
+      return callImagesApi('images/edits', () => {
+        const form = new FormData();
+        for (const [k, v] of Object.entries(fields)) form.append(k, String(v));
+        form.append('image', new Blob([photo.buffer], { type: photo.mime }), `room.${photo.ext}`);
+        return form;
+      }, true);
+    });
 
-  const item = data && data.data && data.data[0];
-  let buffer;
-  if (item && item.b64_json) buffer = Buffer.from(item.b64_json, 'base64');
-  else if (item && item.url) buffer = Buffer.from(await (await fetch(item.url)).arrayBuffer());
-  else throw new Error('API вернул пустой ответ');
+    const item = data && data.data && data.data[0];
+    let buffer;
+    if (item && item.b64_json) buffer = Buffer.from(item.b64_json, 'base64');
+    else if (item && item.url) buffer = Buffer.from(await (await fetch(item.url)).arrayBuffer());
+    else throw new Error('API вернул пустой ответ');
 
-  const ext = CFG.outputFormat === 'jpeg' ? 'jpg' : CFG.outputFormat;
-  const file = `${i + 1}.${ext}`;
-  fs.writeFileSync(path.join(dir, file), buffer);
-  return `/generated/${job.id}/${file}`;
+    const mime = CFG.outputFormat === 'png' ? 'image/png' : `image/${CFG.outputFormat}`;
+    if (CFG.verifyOutput && !(await guard.checkOutput(buffer, mime))) {
+      console.warn(`[${job.id}] вариант ${i + 1}: не прошёл проверку (попытка ${attempt})`);
+      if (attempt === 1) continue;
+      throw new Error('Результат не прошёл проверку');
+    }
+
+    const ext = CFG.outputFormat === 'jpeg' ? 'jpg' : CFG.outputFormat;
+    const file = path.join(dir, `${i + 1}.${ext}`);
+    fs.writeFileSync(file, buffer);
+    const watermarked = await applyWatermark(file, Number(size.split('x')[0]) || 1024);
+    return { url: `/generated/${job.id}/${i + 1}.${ext}`, watermarked };
+  }
 }
 
-async function runJob(job, photo) {
+async function runJob(job, photo, wishes, ip) {
+  // 1. Проверка «только ванные» и анализ помещения
+  const check = await guard.checkInput({ photoDataUrl: photo ? photo.dataUrl : null, wishes, size: job.params.size });
+  if (!check.ok) {
+    job.status = 'rejected';
+    job.error = check.problem;
+    job.field = check.field;
+    refund(ip);
+    console.log(`[${job.id}] отклонено (${check.field}): ${check.problem}`);
+    return;
+  }
+  job.status = 'running';
+  const ctx = { withPhoto: Boolean(photo), room: check.room, wishes: check.wishes };
+
+  // 2. Сохраняем фото клиента — оно пригодится прорабу перед замером
+  if (photo) {
+    fs.mkdirSync(path.join(GENERATED_DIR, job.id), { recursive: true });
+    fs.writeFileSync(path.join(GENERATED_DIR, job.id, `source.${photo.ext}`), photo.buffer);
+    job.sourceUrl = `/generated/${job.id}/source.${photo.ext}`;
+  } else if (!job.mock) {
+    fs.mkdirSync(path.join(GENERATED_DIR, job.id), { recursive: true });
+  }
+
+  // 3. Генерация пяти вариантов
   await Promise.all(
     job.images.map(async (im) => {
       try {
-        im.url = await generateOne(job, im.index, photo);
+        const r = await generateOne(job, im.index, photo, ctx);
+        im.url = r.url;
+        im.watermarked = r.watermarked;
         im.status = 'done';
       } catch (err) {
         im.status = 'error';
@@ -240,17 +325,22 @@ async function runJob(job, photo) {
   );
   const ok = job.images.filter((im) => im.status === 'done').length;
   job.status = ok > 0 ? 'done' : 'error';
-  if (!ok) job.error = 'Не получилось сгенерировать картинки. Попробуйте ещё раз через минуту.';
+  if (!ok) {
+    job.error = 'Не получилось сгенерировать варианты. Попробуйте ещё раз через минуту.';
+    refund(ip);
+  }
   console.log(`[${job.id}] готово: ${ok} из ${job.images.length}`);
 }
 
-function decodePhoto(dataUrl) {
+function decodePhoto(dataUrl, size) {
   if (!dataUrl) return null;
   const m = String(dataUrl).match(/^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/);
-  if (!m) throw Object.assign(new Error('Загрузите фото в формате JPG, PNG или WebP.'), { code: 'BAD_PHOTO' });
+  if (!m) throw new Error('Загрузите фото в формате JPG, PNG или WebP.');
   const buffer = Buffer.from(m[2], 'base64');
-  if (buffer.length > 8 * 1024 * 1024) throw Object.assign(new Error('Фото слишком большое. Максимум 8 МБ.'), { code: 'BAD_PHOTO' });
-  return { buffer, mime: `image/${m[1]}`, ext: m[1] === 'jpeg' ? 'jpg' : m[1] };
+  if (buffer.length > 8 * 1024 * 1024) throw new Error('Фото слишком большое. Максимум 8 МБ.');
+  const w = Number(size && size.w) || 0;
+  const h = Number(size && size.h) || 0;
+  return { buffer, dataUrl, mime: `image/${m[1]}`, ext: m[1] === 'jpeg' ? 'jpg' : m[1], w, h };
 }
 
 // ---------- Капча (Яндекс SmartCaptcha), если ключи заданы ----------
@@ -290,11 +380,6 @@ async function notifyTelegram(text, photoUrl) {
   }
 }
 
-function labelOf(group, id) {
-  const it = OPTIONS[group].items.find((x) => x.id === id);
-  return it ? it.label : id;
-}
-
 // ---------- Обработчики API ----------
 async function handleCreateJob(req, res, ip) {
   let body;
@@ -304,21 +389,26 @@ async function handleCreateJob(req, res, ip) {
     return sendJson(res, 400, { error: e.code === 'TOO_BIG' ? 'Фото слишком большое. Максимум 8 МБ.' : 'Некорректный запрос.' });
   }
   rollDay();
+
+  // Быстрая проверка текста — до капчи и лимитов, чтобы клиент сразу увидел, что поправить.
+  const wishes = rules.checkWishes(body.wishes);
+  if (!wishes.ok) return sendJson(res, 400, { error: wishes.problem, field: 'wishes' });
+
   if (!(await captchaOk(body.captcha, ip))) return sendJson(res, 400, { error: 'Подтвердите, что вы не робот.' });
   if (remainingFor(ip) <= 0) {
     return sendJson(res, 429, {
-      error: `На сегодня лимит исчерпан: ${CFG.dailyLimitPerIp} генерации в сутки. Приходите завтра или оставьте заявку.`,
+      error: `На сегодня лимит исчерпан: ${CFG.dailyLimitPerIp} генерации в сутки. Оставьте заявку на замер — подберём варианты вместе.`,
     });
   }
   if (usage.total >= CFG.globalDailyLimit) {
-    return sendJson(res, 429, { error: 'Сегодня генератор перегружен. Оставьте заявку, и мы пришлём варианты сами.' });
+    return sendJson(res, 429, { error: 'Сегодня генератор перегружен. Оставьте заявку на замер, и мы пришлём варианты сами.' });
   }
 
   let photo;
   try {
-    photo = decodePhoto(body.photo);
+    photo = decodePhoto(body.photo, body.photoSize);
   } catch (e) {
-    return sendJson(res, 400, { error: e.message });
+    return sendJson(res, 400, { error: e.message, field: 'photo' });
   }
   const params = sanitizeParams(body.params);
 
@@ -329,20 +419,23 @@ async function handleCreateJob(req, res, ip) {
     id: crypto.randomUUID(),
     createdAt: Date.now(),
     params,
+    wishes: wishes.text,
     mock: CFG.mock,
     withPhoto: Boolean(photo),
-    status: 'running',
-    images: Array.from({ length: CFG.imagesPerJob }, (_, i) => ({ index: i, label: variantLabel(i, Boolean(photo)), status: 'pending' })),
+    status: 'checking',
+    images: Array.from({ length: CFG.imagesPerJob }, (_, i) => ({ index: i, label: variantLabel(i), status: 'pending' })),
   };
   jobs.set(job.id, job);
-  console.log(`[${job.id}] новая задача${photo ? ' (с фото)' : ''}: ${JSON.stringify(params)}`);
-  runJob(job, photo).catch((e) => {
+  console.log(`[${job.id}] новая задача${photo ? ' (с фото)' : ''}: ${JSON.stringify(params)}${wishes.text ? ` пожелания: ${wishes.text}` : ''}`);
+  runJob(job, photo, wishes.text, ip).catch((e) => {
     job.status = 'error';
     job.error = 'Внутренняя ошибка сервера.';
     console.error(e);
   });
   sendJson(res, 202, { ...publicJob(job), remaining: remainingFor(ip) });
 }
+
+const TIMES = { weekday: 'будни днём', evening: 'будни вечером', weekend: 'выходные', any: 'в любое время' };
 
 async function handleLead(req, res, ip) {
   let body;
@@ -355,7 +448,7 @@ async function handleLead(req, res, ip) {
   const count = usage.leadsPerIp.get(ip) || 0;
   if (count >= 10) return sendJson(res, 429, { error: 'Слишком много заявок с этого устройства. Позвоните нам.' });
 
-  const { name = '', phone = '', consent, jobId, imageIndex } = body;
+  const { name = '', phone = '', address = '', time = '', works = [], consent, jobId, imageIndex } = body;
   const cleanName = String(name).trim().slice(0, 80);
   const digits = String(phone).replace(/\D/g, '');
   if (!cleanName) return sendJson(res, 400, { error: 'Укажите имя.' });
@@ -364,33 +457,47 @@ async function handleLead(req, res, ip) {
 
   const job = jobId ? jobs.get(String(jobId)) : null;
   const image = job && Number.isInteger(imageIndex) ? job.images[imageIndex] : null;
-  const imageUrl = image && image.url ? `${CFG.publicUrl}${image.url}` : null;
+  const abs = (u) => (u ? (/^https?:/.test(u) ? u : `${CFG.publicUrl}${u}`) : null);
+  const workIds = (Array.isArray(works) ? works : []).map(String).filter((id) => OPTIONS.groups.works.items.some((x) => x.id === id));
 
   const lead = {
     at: new Date().toISOString(),
     name: cleanName,
     phone: String(phone).trim().slice(0, 30),
+    address: String(address).trim().slice(0, 160),
+    time: TIMES[time] ? time : '',
+    works: workIds,
     params: job ? job.params : null,
-    withPhoto: job ? job.withPhoto : false,
-    image: imageUrl,
+    wishes: job ? job.wishes : '',
+    source: job ? abs(job.sourceUrl) : null,
+    image: image && image.url ? abs(image.url) : null,
+    variant: image ? image.label : null,
   };
   fs.appendFileSync(path.join(DATA_DIR, 'leads.jsonl'), JSON.stringify(lead) + '\n');
   usage.leadsPerIp.set(ip, count + 1);
 
   const p = lead.params;
-  const lines = ['🛁 Новая заявка с генератора ванной', `Имя: ${lead.name}`, `Телефон: ${lead.phone}`];
+  const lines = ['📐 Заявка на замер с конструктора ванной', `Имя: ${lead.name}`, `Телефон: ${lead.phone}`];
+  if (lead.address) lines.push(`Адрес: ${lead.address}`);
+  if (lead.time) lines.push(`Когда удобно: ${TIMES[lead.time]}`);
   if (p) {
     lines.push(
-      `Помещение: ${labelOf('size', p.size)}`,
+      '',
+      `Помещение: ${labelOf('roomType', p.roomType)}, ${labelOf('size', p.size)}`,
       `Стиль: ${labelOf('style', p.style)}, гамма: ${labelOf('palette', p.palette)}`,
-      `Где мыться: ${labelOf('fixture', p.fixture)}`,
-      `Отделка: ${labelOf('budget', p.budget)}`,
-      `Ещё: ${p.extras.map((id) => labelOf('extras', id)).join(', ') || '—'}`,
-      lead.withPhoto ? 'Клиент загрузил фото своей ванной' : 'Без фото помещения',
+      `Стены: ${labelOf('walls', p.walls)}, металл: ${labelOf('metal', p.metal)}`,
+      `Где мыться: ${labelOf('bathing', p.bathing)}`,
+      `Нужно: ${p.extras.map((id) => labelOf('extras', id)).join(', ') || '—'}`,
+      `Свет: ${p.light.map((id) => labelOf('light', id)).join(', ') || '—'}`,
+      `Уровень: ${labelOf('budget', p.budget)}`,
     );
   }
-  if (imageUrl) lines.push(`Выбранный вариант: ${imageUrl}`);
-  notifyTelegram(lines.join('\n'), imageUrl);
+  if (lead.wishes) lines.push(`Пожелания: ${lead.wishes}`);
+  if (lead.works.length) lines.push(`Ещё сделать: ${lead.works.map((id) => labelOf('works', id)).join(', ')}`);
+  if (lead.variant) lines.push('', `Выбранный вариант: ${lead.variant}`);
+  if (lead.image) lines.push(lead.image);
+  if (lead.source) lines.push(`Фото помещения клиента: ${lead.source}`);
+  notifyTelegram(lines.join('\n'), lead.image);
 
   sendJson(res, 200, { ok: true });
 }
@@ -494,16 +601,18 @@ setInterval(() => {
   for (const name of fs.readdirSync(GENERATED_DIR)) {
     const dir = path.join(GENERATED_DIR, name);
     try {
-      if (fs.statSync(dir).mtimeMs < cutoff) fs.rmSync(dir, { recursive: true, force: true });
+      if (fs.statSync(dir).isDirectory() && fs.statSync(dir).mtimeMs < cutoff) fs.rmSync(dir, { recursive: true, force: true });
     } catch {}
   }
 }, 3600 * 1000).unref();
 
 server.listen(CFG.port, CFG.host, () => {
   console.log(`Сервер запущен: http://${CFG.host === '0.0.0.0' ? 'localhost' : CFG.host}:${CFG.port}`);
-  console.log(
-    CFG.mock
-      ? 'Тестовый режим: вместо генерации рисуются эскизы, API не вызывается.'
-      : `Генерация: ${CFG.model}, ${CFG.size}, качество ${CFG.quality}, через ${CFG.baseURL}`,
-  );
+  if (CFG.mock) {
+    console.log('Тестовый режим: вместо генерации показываются примеры фото, API не вызывается.');
+  } else {
+    console.log(`Генерация: ${CFG.model}, качество ${CFG.quality}, через ${CFG.baseURL}`);
+    console.log(`Проверка «только ванные»: ${CFG.guard ? CFG.guardModel : 'выключена'}; проверка результата: ${CFG.verifyOutput ? 'да' : 'нет'}`);
+  }
+  console.log(`Водяной знак на сервере: ${IMAGEMAGICK ? 'да (ImageMagick)' : 'нет — только на сайте поверх картинки'}`);
 });

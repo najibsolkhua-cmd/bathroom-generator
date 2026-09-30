@@ -2,18 +2,18 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Конструктор ванной комнаты</title>
-  <meta name="description" content="Выберите размер, стиль и сантехнику — получите 5 вариантов дизайна ванной, которые можно построить.">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Ванная мечты по фото — конструктор</title>
+  <meta name="description" content="Сфотографируйте ванную, выберите стиль и сантехнику — покажем 5 фотореалистичных вариантов ремонта, которые можно построить.">
+  <meta name="theme-color" content="#1F4E4B">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231F4E4B'/%3E%3Cpath d='M4 16h24M16 4v24' stroke='%23EEF1EF' stroke-width='2'/%3E%3C/svg%3E">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600&family=Unbounded:wght@500;600&display=swap&subset=cyrillic" rel="stylesheet">
+  <link rel="preload" href="fonts/onest-cyrillic-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/unbounded-cyrillic-600-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="css/style.css">
   <script>
     // Настройки компании — поменяйте под себя.
     window.APP_CONFIG = {
-      companyName: 'Ваша строительная компания',
+      companyName: 'Название компании',
       phone: '+7 (000) 000-00-00',
       // Адрес сервера. Пусто — тот же сайт. На GitHub Pages без сервера включается демо-режим.
       apiBase: ''
@@ -21,111 +21,243 @@
   </script>
 </head>
 <body>
-  <a class="skip" href="#configurator">Перейти к конструктору</a>
+  <a class="skip" href="#generator">Перейти к конструктору</a>
 
   <header class="site-head">
     <div class="wrap site-head__inner">
-      <span class="brand" data-company></span>
-      <a class="phone" data-phone href="#"></a>
+      <a class="brand" href="#top" aria-label="На главную">
+        <span class="brand__logo" aria-hidden="true">Логотип</span>
+        <span class="brand__name" data-company></span>
+      </a>
+      <nav class="site-head__actions">
+        <a class="phone" data-phone href="#"></a>
+        <a class="btn btn--small btn--primary" href="#generator">Начать</a>
+      </nav>
     </div>
   </header>
 
   <div class="demo-note" id="demoNote" hidden>
-    <div class="wrap">Демо-режим: вместо фотореалистичных картинок показываются эскизы, заявки никуда не отправляются.</div>
+    <div class="wrap" id="demoNoteText">Демо-режим: вместо генерации показываем примеры в выбранном стиле, заявки никуда не отправляются.</div>
   </div>
 
-  <main class="wrap layout">
-    <section class="intro">
-      <h1>Соберите ванную, которую можно построить</h1>
-      <p class="lead">Выберите размер, стиль и сантехнику. Через пару минут покажем <span data-variants>5 вариантов</span>, а наш прораб скажет, сколько стоит сделать так же.</p>
+  <main id="top">
+    <!-- Первый экран -->
+    <section class="hero">
+      <div class="wrap hero__inner">
+        <div class="hero__text">
+          <h1>Сфотографируйте ванную — покажем, какой она станет</h1>
+          <p class="hero__lead">Загрузите фото, выберите стиль и сантехнику. Через пару минут покажем <span data-variants>5 вариантов</span> ремонта именно вашего помещения. Понравится — приедем на замер.</p>
+          <div class="hero__cta">
+            <label class="btn btn--primary btn--large" for="heroPhoto">
+              <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.6" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>
+              Загрузить фото ванной
+            </label>
+            <input type="file" id="heroPhoto" class="visually-hidden" accept="image/jpeg,image/png,image/webp">
+            <a class="btn btn--ghost btn--large" href="#how">Как это работает</a>
+          </div>
+          <ul class="hero__facts">
+            <li><strong>2–3 минуты</strong> на 5 вариантов</li>
+            <li><strong>Только то,</strong> что реально построить</li>
+            <li><strong>Бесплатно</strong> и без регистрации</li>
+          </ul>
+        </div>
+        <figure class="hero__media">
+          <div class="hero__photos">
+            <div class="ph ph--tall"><img src="img/photos/hotel-1.jpg" srcset="img/photos/hotel-1-sm.jpg 640w, img/photos/hotel-1.jpg 1600w" sizes="(min-width: 1000px) 30vw, 70vw" alt="Ванная с каменными стенами и подсветкой" fetchpriority="high"><img class="wm" src="img/watermark.png" alt=""></div>
+            <div class="ph"><img src="img/photos/japandi-1-sm.jpg" alt="Ванная в стиле джапанди с деревом и камнем" loading="lazy"><img class="wm" src="img/watermark.png" alt=""></div>
+            <div class="ph"><img src="img/photos/scandi-1-sm.jpg" alt="Светлая ванная в скандинавском стиле" loading="lazy"><img class="wm" src="img/watermark.png" alt=""></div>
+          </div>
+          <figcaption>Такого уровня будут картинки. Примеры: <a href="credits.html">фото Unsplash</a></figcaption>
+        </figure>
+      </div>
     </section>
 
-    <form class="configurator" id="configurator" novalidate>
-      <div id="steps"></div>
-
-      <fieldset class="step" id="photoStep">
-        <legend><span class="step__num" data-num></span>Фото вашей ванной <span class="optional">необязательно</span></legend>
-        <p class="step__hint">Сфотографируйте помещение от двери. Мы сохраним его размеры, окна и двери и поменяем только отделку.</p>
-        <label class="dropzone" id="dropzone">
-          <input type="file" id="photoInput" accept="image/jpeg,image/png,image/webp">
-          <span class="dropzone__empty">
-            <svg aria-hidden="true" viewBox="0 0 24 24" width="28" height="28"><path d="M4 7h3l2-2h6l2 2h3v12H4z M12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-            <span>Добавить фото</span>
-          </span>
-          <span class="dropzone__preview" hidden>
-            <img id="photoPreview" alt="Ваше фото помещения">
-            <button type="button" class="link-button" id="photoRemove">Убрать фото</button>
-          </span>
-        </label>
-        <p class="field-error" id="photoError" hidden></p>
-      </fieldset>
-
-      <div class="captcha" id="captchaBox" hidden></div>
-
-      <div class="submit-bar">
-        <button type="submit" class="btn btn--primary" id="generateBtn">Показать 5 вариантов</button>
-        <p class="submit-bar__note" id="limitNote">Обычно это занимает 1–2 минуты.</p>
+    <!-- Как это работает -->
+    <section class="how" id="how">
+      <div class="wrap">
+        <h2 class="section-title">Как это работает</h2>
+        <ol class="how__steps">
+          <li><span class="how__num">1</span><h3>Загрузите фото</h3><p>Снимите ванную от двери. Сохраним стены, окна и трубы — поменяем только отделку.</p></li>
+          <li><span class="how__num">2</span><h3>Выберите параметры</h3><p>Стиль, цвет, сантехнику, свет и уровень отделки. Можно дописать пожелания своими словами.</p></li>
+          <li><span class="how__num">3</span><h3>Получите 5 вариантов</h3><p>Фотореалистичные картинки вашей ванной. Только решения, которые можно купить и смонтировать.</p></li>
+          <li><span class="how__num">4</span><h3>Закажите замер</h3><p>Отметьте понравившийся вариант. Прораб приедет, всё измерит и посчитает стоимость.</p></li>
+        </ol>
       </div>
-    </form>
+    </section>
 
-    <section class="result" id="result" aria-live="polite" aria-busy="false">
-      <div class="result__empty" id="emptyState">
-        <div class="wall" aria-hidden="true"></div>
-        <p>Здесь появятся ваши варианты</p>
-      </div>
+    <!-- Конструктор -->
+    <section class="generator" id="generator">
+      <div class="wrap">
+        <h2 class="section-title">Соберите ванную за 5 шагов</h2>
+        <div class="generator__grid">
+          <form class="wizard" id="wizard" novalidate>
+            <ol class="progress" id="progress" aria-label="Шаги"></ol>
+            <div class="wizard__body">
+              <h3 class="wizard__title" id="stepTitle" tabindex="-1"></h3>
 
-      <div class="loader" id="loader" hidden>
-        <div class="loader__wall" id="loaderWall" aria-hidden="true"></div>
-        <p class="loader__status" id="loaderStatus">Замеряем помещение</p>
-        <p class="loader__meta"><span id="loaderDone">Готово 0 из 5</span><span id="loaderTime">0:00</span></p>
-      </div>
+              <!-- Шаг 1: фото -->
+              <div class="step" data-step="photo">
+                <label class="dropzone" id="dropzone">
+                  <input type="file" id="photoInput" class="visually-hidden" accept="image/jpeg,image/png,image/webp">
+                  <span class="dropzone__empty" id="dropEmpty">
+                    <svg aria-hidden="true" viewBox="0 0 48 48" width="44" height="44"><rect x="5" y="11" width="38" height="28" rx="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M17 11l3-4h8l3 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="24" cy="25" r="7" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+                    <strong>Загрузите фото ванной</strong>
+                    <span>Нажмите или перетащите файл. JPG, PNG или WebP.</span>
+                  </span>
+                  <span class="dropzone__preview" id="dropPreview" hidden>
+                    <img id="photoPreview" alt="Ваше фото помещения">
+                    <span class="dropzone__actions">
+                      <span class="ok-badge">Фото загружено</span>
+                      <button type="button" class="link-button" id="photoReplace">Заменить</button>
+                      <button type="button" class="link-button" id="photoRemove">Убрать</button>
+                    </span>
+                  </span>
+                </label>
+                <p class="field-error" id="photoError" role="alert" hidden></p>
+                <ul class="tips">
+                  <li><svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20"><path d="M4 20V5h7v15M11 20h9" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>Встаньте в дверях и захватите пол и потолок</li>
+                  <li><svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2" stroke="currentColor" stroke-width="1.7"/></svg>Включите свет, уберите лишние вещи</li>
+                  <li><svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20"><rect x="7" y="3" width="10" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>Подойдёт фото и в старой ванной, и без отделки</li>
+                </ul>
+                <p class="no-photo"><button type="button" class="link-button" id="noPhotoBtn">Нет фото под рукой — подобрать идеи без фото</button></p>
+              </div>
 
-      <div class="gallery" id="gallery" hidden>
-        <div class="gallery__head">
-          <h2>Ваши варианты</h2>
-          <p>Нажмите на картинку, чтобы рассмотреть. Отметьте ту, что нравится, и оставьте телефон.</p>
+              <div class="step" data-step="room"></div>
+              <div class="step" data-step="finish"></div>
+              <div class="step" data-step="fixtures"></div>
+              <div class="step" data-step="wishes">
+                <div id="wishesGroups"></div>
+                <div class="group">
+                  <div class="group__head">
+                    <label class="group__title" for="wishes">Опишите своими словами</label>
+                    <span class="optional">необязательно</span>
+                  </div>
+                  <p class="group__hint">Только про ванную: отделка, сантехника, мебель, свет. Людей, надписи и другие комнаты генератор не рисует.</p>
+                  <div class="wishes">
+                    <textarea id="wishes" name="wishes" rows="3" maxlength="300" placeholder="Например: тёплое дерево на стене за раковиной и стекло душа без рамок"></textarea>
+                    <span class="wishes__count" id="wishesCount">0 / 300</span>
+                  </div>
+                  <div class="hint-chips" id="hintChips"></div>
+                  <p class="field-error" id="wishesError" role="alert" hidden></p>
+                </div>
+              </div>
+            </div>
+
+            <div class="captcha" id="captchaBox" hidden></div>
+
+            <div class="wizard__nav">
+              <button type="button" class="btn btn--ghost" id="backBtn">Назад</button>
+              <button type="button" class="btn btn--primary" id="nextBtn">Далее</button>
+            </div>
+          </form>
+
+          <aside class="summary" id="summary" aria-label="Ваш проект">
+            <h3>Ваш проект</h3>
+            <div class="summary__photo" id="summaryPhoto"><span>Фото пока нет</span></div>
+            <dl class="summary__list" id="summaryList"></dl>
+            <p class="summary__note" id="limitNote">Обычно генерация занимает 2–3 минуты.</p>
+          </aside>
         </div>
-        <div class="gallery__grid" id="galleryGrid"></div>
-        <p class="disclaimer">Это визуализация идеи. Точные материалы, размеры и смету подготовит специалист после замера.</p>
-        <button type="button" class="btn btn--ghost" id="againBtn">Изменить параметры</button>
       </div>
+    </section>
 
-      <p class="result__error" id="resultError" role="alert" hidden></p>
-
-      <form class="lead" id="leadForm" hidden novalidate>
-        <h2>Посчитаем стоимость</h2>
-        <p class="lead__chosen" id="leadChosen">Отметьте понравившийся вариант или просто оставьте телефон — обсудим по звонку.</p>
-        <div class="lead__fields">
-          <label class="field">
-            <span>Имя</span>
-            <input type="text" name="name" autocomplete="name" maxlength="80" required>
-          </label>
-          <label class="field">
-            <span>Телефон</span>
-            <input type="tel" name="phone" autocomplete="tel" inputmode="tel" placeholder="+7" maxlength="30" required>
-          </label>
+    <!-- Результаты -->
+    <section class="results" id="results" hidden aria-live="polite" aria-busy="false">
+      <div class="wrap">
+        <div class="results__head">
+          <div>
+            <h2 class="section-title">Ваши варианты</h2>
+            <p class="results__sub" id="resultsSub">Нажмите на картинку, чтобы рассмотреть. Отметьте ту, что нравится.</p>
+          </div>
+          <div class="results__source" id="resultsSource" hidden>
+            <img id="resultsSourceImg" alt="Ваше фото">
+            <span>Ваше фото</span>
+          </div>
         </div>
-        <label class="consent">
-          <input type="checkbox" name="consent" required>
-          <span>Согласен на обработку персональных данных по <a href="privacy.html" target="_blank" rel="noopener">политике конфиденциальности</a></span>
-        </label>
-        <p class="field-error" id="leadError" role="alert" hidden></p>
-        <button type="submit" class="btn btn--primary" id="leadBtn">Отправить заявку</button>
-        <p class="lead__done" id="leadDone" hidden></p>
-      </form>
+
+        <div class="loader" id="loader" hidden>
+          <div class="loader__wall" id="loaderWall" aria-hidden="true"></div>
+          <div class="loader__text">
+            <p class="loader__status" id="loaderStatus">Проверяем фото и пожелания</p>
+            <p class="loader__meta"><span id="loaderDone">Готово 0 из 5</span><span id="loaderTime">0:00</span></p>
+          </div>
+        </div>
+
+        <p class="result-error" id="resultError" role="alert" hidden></p>
+
+        <div class="gallery" id="gallery"></div>
+
+        <div class="results__foot" id="resultsFoot" hidden>
+          <p class="disclaimer">Это визуализация идеи. Точные материалы, размеры и смету подготовит прораб после замера.</p>
+          <button type="button" class="btn btn--ghost" id="againBtn">Изменить параметры</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Заказ замера -->
+    <section class="order" id="order" hidden>
+      <div class="wrap">
+        <form class="order__card" id="orderForm" novalidate>
+          <div class="order__intro">
+            <h2 class="section-title">Заказать замер</h2>
+            <p>Прораб приедет, измерит помещение, подскажет по материалам и посчитает стоимость ремонта по выбранному варианту.</p>
+            <div class="order__chosen" id="orderChosen">
+              <span class="order__chosen-empty">Отметьте понравившийся вариант выше — прораб возьмёт его за основу.</span>
+            </div>
+          </div>
+          <div class="order__fields">
+            <label class="field"><span>Имя</span><input type="text" name="name" autocomplete="name" maxlength="80" required></label>
+            <label class="field"><span>Телефон</span><input type="tel" name="phone" autocomplete="tel" inputmode="tel" placeholder="+7" maxlength="30" required></label>
+            <label class="field field--wide"><span>Адрес или район <em>необязательно</em></span><input type="text" name="address" autocomplete="street-address" maxlength="160"></label>
+            <fieldset class="field field--wide">
+              <legend>Когда удобно</legend>
+              <div class="chips" id="timeChips">
+                <label class="chip"><input type="radio" name="time" value="weekday"><span>Будни днём</span></label>
+                <label class="chip"><input type="radio" name="time" value="evening"><span>Будни вечером</span></label>
+                <label class="chip"><input type="radio" name="time" value="weekend"><span>Выходные</span></label>
+                <label class="chip"><input type="radio" name="time" value="any" checked><span>Не важно</span></label>
+              </div>
+            </fieldset>
+            <fieldset class="field field--wide">
+              <legend>Что ещё нужно сделать <em>для сметы</em></legend>
+              <div class="chips" id="worksChips"></div>
+            </fieldset>
+            <label class="consent field--wide">
+              <input type="checkbox" name="consent" required>
+              <span>Согласен на обработку персональных данных по <a href="privacy.html" target="_blank" rel="noopener">политике конфиденциальности</a></span>
+            </label>
+            <p class="field-error field--wide" id="orderError" role="alert" hidden></p>
+            <button type="submit" class="btn btn--primary btn--large field--wide" id="orderBtn">Заказать замер</button>
+            <p class="order__done field--wide" id="orderDone" hidden></p>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- Вопросы -->
+    <section class="faq">
+      <div class="wrap">
+        <h2 class="section-title">Частые вопросы</h2>
+        <div class="faq__list">
+          <details><summary>Точно ли можно сделать как на картинке?</summary><p>Генератор рисует только то, что продаётся в строительных магазинах и монтируется обычной бригадой: стандартная плитка, сантехника, мебель. Перед ремонтом прораб проверит вариант на замере.</p></details>
+          <details><summary>Что будет с моим фото?</summary><p>Фото нужно только для создания вариантов и подготовки к замеру. Мы не публикуем его и удаляем через две недели. Данные о месте съёмки из фото удаляются ещё в браузере.</p></details>
+          <details><summary>Сколько это стоит?</summary><p>Подобрать варианты — бесплатно. Замер и расчёт стоимости ремонта обсудим по телефону.</p></details>
+          <details><summary>Почему нельзя нарисовать что-то кроме ванной?</summary><p>Генератор настроен только на ванные и санузлы. Так картинки получаются реалистичнее, а нейросеть не отвлекается на лишнее.</p></details>
+        </div>
+      </div>
     </section>
   </main>
 
   <footer class="site-foot">
-    <div class="wrap">
-      <p><span data-company></span>. Картинки создаются нейросетью по вашим параметрам и служат для выбора идеи.</p>
-      <a href="privacy.html">Политика конфиденциальности</a>
+    <div class="wrap site-foot__inner">
+      <p><span data-company></span>. Картинки создаются нейросетью по вашему фото и параметрам и служат для выбора идеи.</p>
+      <p><a href="privacy.html">Политика конфиденциальности</a> <a href="credits.html">Фото на сайте</a></p>
     </div>
   </footer>
 
   <dialog class="viewer" id="viewer" aria-label="Просмотр варианта">
     <figure>
-      <img id="viewerImg" alt="">
+      <div class="viewer__img"><img id="viewerImg" alt=""><img class="wm" id="viewerWm" src="img/watermark.png" alt=""></div>
       <figcaption id="viewerCaption"></figcaption>
     </figure>
     <div class="viewer__bar">
@@ -139,7 +271,7 @@
   </dialog>
 
   <script src="js/options.js"></script>
-  <script src="js/sketch.js"></script>
+  <script src="js/guard-rules.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

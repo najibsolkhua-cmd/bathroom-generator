@@ -1,0 +1,4 @@
+{
+  "packages": ["@fontsource/onest@5", "@fontsource/unbounded@5"],
+  "weights": { "onest": [400, 500, 600], "unbounded": [500, 600] }
+}

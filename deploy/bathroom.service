@@ -1,0 +1,17 @@
+# /etc/systemd/system/bathroom.service
+# Запускает сервер при старте VPS и перезапускает его, если он упал.
+[Unit]
+Description=Bathroom generator
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/www/bathroom-generator
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

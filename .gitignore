@@ -1,0 +1,8 @@
+.env
+node_modules/
+generated/*
+!generated/.gitkeep
+data/*
+!data/.gitkeep
+*.log
+.DS_Store

@@ -1,0 +1,15 @@
+{
+  "name": "bathroom-generator",
+  "version": "1.0.0",
+  "description": "Генератор дизайна ванной комнаты для сайта строительной компании",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "mock": "MOCK=1 node server.js",
+    "check": "node scripts/check-options.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

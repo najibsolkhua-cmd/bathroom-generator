@@ -1,0 +1,59 @@
+# Вспомогательное: ищет кандидатов-фото на Unsplash по assets/queries.json
+# и кладёт миниатюры в ветку assets-candidates (для отбора, в main не попадает).
+name: Поиск фото-кандидатов
+
+on:
+  push:
+    paths: ['assets/queries.json']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Ищем и скачиваем миниатюры
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.parse, time
+          q = json.load(open('assets/queries.json'))
+          out = 'cand'; os.makedirs(out, exist_ok=True)
+          index = {}
+          hdr = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128 Safari/537.36', 'Accept': 'application/json'}
+          for group, queries in q.items():
+            seen = []
+            for query in queries:
+              url = 'https://unsplash.com/napi/search/photos?' + urllib.parse.urlencode({'query': query, 'per_page': 30})
+              try:
+                data = json.load(urllib.request.urlopen(urllib.request.Request(url, headers=hdr), timeout=30))
+              except Exception as e:
+                print('FAIL', query, e); continue
+              for r in data.get('results', []):
+                raw = r.get('urls', {}).get('raw', '')
+                if r.get('premium') or r.get('plus') or 'plus.unsplash.com' in raw: continue
+                if any(s['id'] == r['id'] for s in seen): continue
+                seen.append({'id': r['id'], 'raw': raw, 'w': r.get('width'), 'h': r.get('height'),
+                             'author': r.get('user', {}).get('name'), 'author_url': r.get('user', {}).get('links', {}).get('html'),
+                             'page': r.get('links', {}).get('html'), 'alt': r.get('alt_description'), 'query': query})
+              time.sleep(1)
+            index[group] = seen[:24]
+            os.makedirs(f'{out}/{group}', exist_ok=True)
+            for s in index[group]:
+              try:
+                urllib.request.urlretrieve(s['raw'] + '&w=360&q=70&fm=jpg&fit=max', f"{out}/{group}/{s['id']}.jpg")
+              except Exception as e:
+                print('IMG FAIL', s['id'], e)
+            print(group, len(index[group]))
+          json.dump(index, open(f'{out}/index.json', 'w'), ensure_ascii=False, indent=1)
+          PY
+      - name: Публикуем в ветку assets-candidates
+        run: |
+          cd cand
+          git init -q -b assets-candidates
+          git config user.name "github-actions[bot]"
+          git config user.email "41898341+github-actions[bot]@users.noreply.github.com"
+          git add -A && git commit -q -m "Кандидаты фото"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" assets-candidates

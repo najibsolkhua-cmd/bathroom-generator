@@ -1,0 +1,9 @@
+{
+  "minimal": ["minimalist bathroom", "modern bathroom interior"],
+  "scandi": ["scandinavian bathroom", "white bathroom wood"],
+  "japandi": ["japandi bathroom", "spa bathroom wood stone"],
+  "loft": ["industrial bathroom", "concrete bathroom"],
+  "neoclassic": ["marble bathroom", "classic bathroom"],
+  "hotel": ["luxury bathroom", "hotel bathroom"],
+  "before": ["old bathroom", "bathroom renovation"]
+}

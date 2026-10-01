@@ -174,7 +174,7 @@ a { color: var(--glaze); text-underline-offset: 3px; }
 .how__steps p { margin: 0; color: var(--mist); font-size: 15px; }
 
 /* ---------- Конструктор ---------- */
-.generator { padding: 24px 0 56px; }
+.generator { padding: 24px 0 56px; scroll-margin-top: 56px; }
 .generator__grid { display: grid; gap: 20px; align-items: start; }
 @media (min-width: 1000px) { .generator__grid { grid-template-columns: minmax(0, 1fr) 340px; gap: 28px; } }
 
@@ -359,8 +359,16 @@ a { color: var(--glaze); text-underline-offset: 3px; }
 .results__head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 18px; }
 .results__head .section-title { margin-bottom: 6px; }
 .results__sub { margin: 0; color: var(--mist); }
-.results__source { flex: none; display: grid; justify-items: center; gap: 4px; font-size: 12px; color: var(--mist); }
-.results__source img { width: 96px; height: 72px; object-fit: cover; border-radius: 8px; border: 2px solid var(--surface); box-shadow: var(--shadow-float); }
+
+/* Все генерации сделаны: вместо конструктора — подсказка перейти к вариантам */
+.limit-done {
+  max-width: 760px; padding: 28px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-panel);
+  scroll-margin-top: 80px;
+}
+.limit-done .section-title { margin-bottom: 10px; }
+.limit-done p { margin: 0 0 20px; color: var(--mist); max-width: 60ch; }
+.limit-done__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+@media (max-width: 560px) { .limit-done { padding: 20px; } .limit-done__actions .btn { width: 100%; } }
 
 .loader {
   display: flex; align-items: center; gap: 22px; margin-bottom: 20px; padding: 18px;
@@ -379,6 +387,14 @@ a { color: var(--glaze); text-underline-offset: 3px; }
 @media (max-width: 560px) { .loader { flex-direction: column; align-items: stretch; text-align: center; } .loader__wall { width: 100%; } .loader__meta { justify-content: center; } }
 
 .result-error { margin: 0 0 20px; padding: 14px 16px; border-radius: var(--radius-control); background: var(--error-tint); color: var(--error); }
+
+/* Генерации: новые сверху, у каждой — заголовок с фото клиента и главными параметрами */
+.gens { margin-bottom: 16px; }
+.gen + .gen { margin-top: 12px; padding-top: 24px; border-top: 1px solid var(--line); }
+.gen__head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.gen__source img { display: block; width: 56px; height: 42px; object-fit: cover; border-radius: 6px; }
+.gen__title { margin: 0; font-family: var(--font-display); font-weight: 500; font-size: 17px; letter-spacing: -0.01em; }
+.gen__meta { margin: 2px 0 0; font-size: 14px; color: var(--mist); }
 
 /* Галерея как на Pinterest: колонки разной высоты, варианты раскладываются по порядку слева направо */
 .gallery { display: grid; grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr)); gap: 16px; align-items: start; margin-bottom: 16px; }

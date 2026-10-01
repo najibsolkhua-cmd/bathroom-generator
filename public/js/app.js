@@ -1,9 +1,14 @@
-/* Конструктор ванной: фото → пять шагов → 5 вариантов → выбор → заказ замера. */
+/*
+ * Конструктор ванной: фото → пять шагов → 3 варианта → выбор → заказ замера.
+ * У каждого человека до 3 генераций. Все его варианты остаются на странице (и после перезагрузки):
+ * их можно отметить из любой генерации и заказать замер. Когда генерации кончились, конструктор
+ * закрывается и остаётся только выбрать варианты и заказать замер.
+ */
 (function () {
   'use strict';
 
   const CFG = Object.assign({ companyName: '', phone: '', apiBase: '' }, window.APP_CONFIG || {});
-  const { groups: G, steps: STEPS, wishHints, sizeAllows, autoStyles, variantLabel, WISHES_MAX } = window.BATH_OPTIONS;
+  const { groups: G, steps: STEPS, wishHints, sizeAllows, autoStyles, autoStyleAt, variantLabel, WISHES_MAX } = window.BATH_OPTIONS;
   const AUTO_ICON = '<svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20"><path d="M12 3l1.8 4.7L18.5 9l-4.7 1.8L12 15.5l-1.8-4.7L5.5 9l4.7-1.3zM18.5 14l.9 2.3 2.3.9-2.3.9-.9 2.3-.9-2.3-2.3-.9 2.3-.9z" fill="currentColor"/></svg>';
   const GUARD = window.BathGuard;
   const query = new URLSearchParams(location.search);
@@ -35,9 +40,14 @@
     summaryList: $('#summaryList'),
     limitNote: $('#limitNote'),
     captchaBox: $('#captchaBox'),
+    generatorBody: $('#generatorBody'),
+    limitDone: $('#limitDone'),
+    limitDoneTitle: $('#limitDoneTitle'),
+    limitDoneText: $('#limitDoneText'),
+    limitToResults: $('#limitToResults'),
+    demoReset: $('#demoReset'),
     results: $('#results'),
     resultsSub: $('#resultsSub'),
-    resultsSource: $('#resultsSource'),
     loader: $('#loader'),
     loaderWall: $('#loaderWall'),
     loaderStatus: $('#loaderStatus'),
@@ -46,6 +56,8 @@
     resultError: $('#resultError'),
     gallery: $('#gallery'),
     resultsFoot: $('#resultsFoot'),
+    againBtn: $('#againBtn'),
+    toOrderBtn: $('#toOrderBtn'),
     order: $('#order'),
     orderForm: $('#orderForm'),
     orderChosen: $('#orderChosen'),
@@ -63,18 +75,18 @@
 
   const state = {
     mode: 'demo', // demo — без сервера, mock — сервер без ключа, live — настоящая генерация
-    count: 5,
+    count: 3, // вариантов в одной генерации
+    limit: 3, // генераций на человека
+    used: 0,
     remaining: null,
-    photo: null, // { dataUrl, w, h }
+    photo: null, // { dataUrl, w, h, thumb }
     noPhoto: false,
     step: 0,
     maxStep: 0,
     busy: false,
-    jobId: null,
-    images: [],
-    figs: [],
-    picked: [], // номера выбранных вариантов для замера
-    viewing: null,
+    gens: [], // генерации человека: { id, number, first, params, status, sourceSrc, images, el, grid, figs }
+    picked: [], // выбранные для замера варианты: ключи «id генерации:номер картинки»
+    viewing: null, // ключ варианта в просмотре
     captchaWidget: null,
   };
 
@@ -316,7 +328,13 @@
       canvas.height = Math.round(img.naturalHeight * scale);
       canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
       if (Math.min(canvas.width, canvas.height) < 400) throw new Error('Фото слишком маленькое. Нужна картинка хотя бы 400 px по короткой стороне.');
-      return { dataUrl: canvas.toDataURL('image/jpeg', 0.88), w: canvas.width, h: canvas.height };
+      // Маленькая копия — для заголовка генерации в галерее.
+      const t = document.createElement('canvas');
+      const ts = 240 / Math.max(canvas.width, canvas.height);
+      t.width = Math.round(canvas.width * ts);
+      t.height = Math.round(canvas.height * ts);
+      t.getContext('2d').drawImage(canvas, 0, 0, t.width, t.height);
+      return { dataUrl: canvas.toDataURL('image/jpeg', 0.88), w: canvas.width, h: canvas.height, thumb: t.toDataURL('image/jpeg', 0.8) };
     } finally {
       URL.revokeObjectURL(url);
     }
@@ -410,22 +428,85 @@
     els.wishes.focus();
   });
 
-  // ---------- Режим работы ----------
+  // ---------- Сколько генераций осталось ----------
+  const DEMO_KEY = 'solk-demo-v1'; // демо-режим хранит генерации в браузере
+  const VID_KEY = 'solk-vid'; // номер посетителя — если сервер на другом адресе и cookie не доходит
+  const store = {
+    get(k) {
+      try {
+        return localStorage.getItem(k);
+      } catch {
+        return null;
+      }
+    },
+    set(k, v) {
+      try {
+        localStorage.setItem(k, v);
+      } catch {}
+    },
+    del(k) {
+      try {
+        localStorage.removeItem(k);
+      } catch {}
+    },
+  };
+  function apiHeaders(json) {
+    const h = {};
+    if (json) h['Content-Type'] = 'application/json';
+    const vid = store.get(VID_KEY);
+    if (vid) h['X-Visitor-Id'] = vid;
+    return h;
+  }
+  const leftCount = () => (state.remaining === null ? state.limit : state.remaining);
+  const isLocked = () => state.remaining === 0 && !state.busy;
+  const doneCount = () => state.gens.reduce((n, g) => n + g.images.filter((im) => im.status === 'done').length, 0);
+  const gensWord = (n) => plural(n, ['генерацию', 'генерации', 'генераций']);
+
   function applyCount() {
     $$('[data-variants]').forEach((el) => (el.textContent = variantsText(state.count)));
+    $$('[data-limit]').forEach((el) => (el.textContent = String(state.limit)));
     goTo(state.step);
   }
 
   function updateLimitNote() {
+    const quota = `Осталось генераций: ${leftCount()} из ${state.limit}. В каждой — ${variantsText(state.count)}.`;
+    els.limitNote.textContent = state.mode === 'demo' ? `Демо-режим: покажем примеры за несколько секунд. ${quota}` : `${quota} Обычно это 2–3 минуты.`;
+  }
+
+  // Генерации кончились: конструктор закрываем, остаются варианты и заказ замера.
+  function applyQuota() {
+    const locked = isLocked();
+    els.generatorBody.hidden = locked;
+    els.limitDone.hidden = !locked;
+    if (locked) {
+      const has = doneCount() > 0;
+      els.limitDoneTitle.textContent = `Вы использовали все ${state.limit} ${gensWord(state.limit)}`;
+      els.limitDoneText.innerHTML = has
+        ? 'Это максимум для одного человека. Все ваши варианты — ниже: отметьте понравившиеся и закажите замер. Прораб приедет, поможет доработать проект и посчитает стоимость.'
+        : `Ваши варианты уже удалены: мы храним их месяц. Позвоните нам — договоримся о замере: <a href="tel:${esc(CFG.phone.replace(/[^\d+]/g, ''))}">${esc(CFG.phone)}</a>`;
+      els.limitToResults.hidden = !has;
+      els.demoReset.hidden = state.mode !== 'demo';
+    }
+    els.nextBtn.disabled = state.busy || state.remaining === 0;
+    updateLimitNote();
+    updateResultsUi();
+  }
+
+  function updateResultsUi() {
+    const has = doneCount() > 0;
+    const left = leftCount();
+    els.results.hidden = !state.gens.length;
+    els.resultsFoot.hidden = state.busy || !has;
+    els.order.hidden = !has;
+    els.againBtn.hidden = left === 0;
+    els.againBtn.textContent = `Ещё варианты (осталось ${left})`;
     if (state.mode === 'demo') {
-      els.limitNote.textContent = 'Демо-режим: покажем примеры в выбранном стиле за несколько секунд.';
-    } else if (state.mode === 'live' && state.remaining !== null) {
-      els.limitNote.textContent =
-        state.remaining > 0
-          ? `Осталось генераций сегодня: ${state.remaining}. Обычно это занимает 2–3 минуты.`
-          : 'На сегодня генерации закончились. Приходите завтра или позвоните нам.';
+      els.resultsSub.textContent = 'Демо: показываем примеры в выбранном стиле. Отметьте понравившиеся варианты — можно из разных генераций.';
     } else {
-      els.limitNote.textContent = 'Обычно генерация занимает 2–3 минуты.';
+      els.resultsSub.textContent =
+        left === 0
+          ? 'Генерации закончились. Отметьте понравившиеся варианты и закажите замер.'
+          : 'Нажмите на картинку, чтобы рассмотреть. Отметьте понравившиеся варианты для замера — можно из разных генераций.';
     }
   }
 
@@ -444,21 +525,70 @@
     return window.smartCaptcha.getResponse(state.captchaWidget);
   }
 
+  // Демо-режим: генерации живут в браузере. ?reset=1 в адресе или кнопка «Начать демо заново» их стирают.
+  function loadDemo() {
+    if (query.get('reset') === '1') {
+      store.del(DEMO_KEY);
+      window.history.replaceState(null, '', location.pathname + location.hash);
+    }
+    let saved = null;
+    try {
+      saved = JSON.parse(store.get(DEMO_KEY) || 'null');
+    } catch {}
+    state.gens = saved && Array.isArray(saved.gens) ? saved.gens.filter((g) => g && Array.isArray(g.images)) : [];
+    state.used = Math.max(state.gens.length, (saved && saved.used) || 0);
+    state.remaining = Math.max(0, state.limit - state.used);
+  }
+  function saveDemo() {
+    const gens = state.gens
+      .filter((g) => g.images.some((im) => im.status === 'done'))
+      .map((g) => ({ id: g.id, number: g.number, first: g.first, params: g.params, status: 'done', sourceSrc: g.sourceSrc, images: g.images.map((im) => ({ label: im.label, status: im.status, src: im.src, thumb: im.thumb })) }));
+    store.set(DEMO_KEY, JSON.stringify({ used: state.used, gens }));
+  }
+
+  // Ответ сервера → генерация на странице
+  const apiUrl = (u) => (u ? (/^(https?:|data:)/.test(u) ? u : API + u) : null);
+  function imFromServer(im) {
+    return {
+      label: im.label,
+      status: im.status,
+      watermarked: im.watermarked,
+      src: apiUrl(im.url),
+      thumb: im.url && /\/img\/photos\/.+\.jpg$/.test(im.url) ? API + im.url.replace(/\.jpg$/, '-sm.jpg') : null,
+    };
+  }
+  function genFromJob(job) {
+    return {
+      id: job.id,
+      number: job.number || 1,
+      first: job.first || 1,
+      params: job.params || {},
+      status: job.status,
+      sourceSrc: apiUrl(job.sourceUrl),
+      images: (job.images || []).map(imFromServer),
+    };
+  }
+
   async function detectMode() {
     const staticHost = location.protocol === 'file:' || /\.github\.io$/i.test(location.hostname);
     if (!(staticHost && !query.get('api'))) {
       try {
-        const r = await fetchWithTimeout(`${API}/api/config`, {}, 5000);
+        const r = await fetchWithTimeout(`${API}/api/config`, { headers: apiHeaders() }, 5000);
         if (!r.ok) throw new Error('config');
         const c = await r.json();
         state.mode = c.mock ? 'mock' : 'live';
-        state.count = c.imagesPerJob || 5;
+        state.count = c.imagesPerJob || 3;
+        state.limit = c.limit || 3;
+        state.used = c.used || 0;
         state.remaining = typeof c.remaining === 'number' ? c.remaining : null;
+        if (c.visitorId) store.set(VID_KEY, c.visitorId);
+        state.gens = (c.history || []).map(genFromJob);
         if (c.captchaClientKey) loadCaptcha(c.captchaClientKey);
       } catch {
         state.mode = 'demo';
       }
     }
+    if (state.mode === 'demo') loadDemo();
     if (state.mode !== 'live') {
       els.demoNote.hidden = false;
       if (state.mode === 'mock') {
@@ -466,7 +596,24 @@
       }
     }
     applyCount();
-    updateLimitNote();
+    renderGallery();
+    renderChosen();
+    applyQuota();
+    // После перезагрузки страницы подставляем фото из последней генерации, чтобы не загружать его снова.
+    const last = byNewest().find((g) => g.sourceSrc && !g.sourceSrc.startsWith('data:'));
+    if (last && !state.photo && !isLocked()) restorePhoto(last.sourceSrc);
+    // Страницу обновили во время генерации — продолжаем ждать её.
+    const running = state.gens.find((g) => g.status === 'checking' || g.status === 'running');
+    if (running) resumeJob(running);
+  }
+
+  async function restorePhoto(url) {
+    try {
+      const r = await fetchWithTimeout(url, {}, 15000);
+      if (!r.ok) return;
+      const blob = await r.blob();
+      if (!state.photo) setPhoto(await preparePhoto(new File([blob], 'room.jpg', { type: blob.type })));
+    } catch {}
   }
 
   // ---------- Анимация: укладываем плитку ----------
@@ -532,138 +679,194 @@
     els.loader.hidden = true;
   }
 
-  function updateProgress() {
-    const done = state.images.filter((im) => im.status !== 'pending').length;
-    els.loaderDone.textContent = `Готово ${done} из ${state.images.length}`;
+  function updateProgress(gen) {
+    const done = gen.images.filter((im) => im.status !== 'pending').length;
+    els.loaderDone.textContent = `Готово ${done} из ${gen.images.length}`;
   }
 
-  // ---------- Галерея ----------
+  // ---------- Галерея: генерации, новые сверху ----------
+  // Варианты пронумерованы сквозь все генерации: у первой 1–3, у второй 4–6, у третьей 7–9.
+  const keyOf = (gen, i) => `${gen.id}:${i}`;
+  const byNewest = () => [...state.gens].sort((a, b) => b.number - a.number);
+  function findShot(key) {
+    const at = String(key).lastIndexOf(':');
+    const id = String(key).slice(0, at);
+    const i = Number(String(key).slice(at + 1));
+    const gen = state.gens.find((g) => g.id === id);
+    return gen && gen.images[i] ? { gen, i, im: gen.images[i], num: gen.first + i } : null;
+  }
+
   function wmTag(im) {
     return im.watermarked ? '' : `<img class="wm" src="${WATERMARK}" alt="">`;
   }
 
+  function genMeta(gen) {
+    const p = gen.params || {};
+    const parts = [p.style && p.style !== 'auto' ? labelOf('style', p.style) : 'Разные стили'];
+    if (p.palette && p.palette !== 'auto') parts.push(labelOf('palette', p.palette));
+    if (p.budget && p.budget !== 'auto') parts.push(labelOf('budget', p.budget));
+    return parts.join(' · ');
+  }
+
   // Раскладка по колонкам: 1 на телефоне, 2 на планшете, 3 на компьютере; варианты идут по порядку слева направо.
   const galleryCols = () => (window.matchMedia('(min-width: 1000px)').matches ? 3 : window.matchMedia('(min-width: 600px)').matches ? 2 : 1);
-  function layoutGallery() {
-    const n = Math.min(galleryCols(), Math.max(1, state.figs.length));
-    if (Number(els.gallery.dataset.cols) !== n) {
-      els.gallery.dataset.cols = String(n);
-      els.gallery.style.setProperty('--cols', n);
-      els.gallery.innerHTML = '';
+  function layoutGen(gen) {
+    const figs = gen.figs.filter((fig, i) => fig && gen.images[i] && gen.images[i].status !== 'expired');
+    const n = Math.min(galleryCols(), Math.max(1, figs.length));
+    if (Number(gen.grid.dataset.cols) !== n) {
+      gen.grid.dataset.cols = String(n);
+      gen.grid.style.setProperty('--cols', n);
+      gen.grid.innerHTML = '';
       for (let c = 0; c < n; c++) {
         const col = document.createElement('div');
         col.className = 'gallery__col';
-        els.gallery.appendChild(col);
+        gen.grid.appendChild(col);
       }
     }
-    state.figs.forEach((fig, i) => {
-      const col = els.gallery.children[i % n];
+    figs.forEach((fig, i) => {
+      const col = gen.grid.children[i % n];
       if (fig.parentNode !== col) col.appendChild(fig);
     });
   }
-  window.addEventListener('resize', () => {
-    if (state.figs.length) layoutGallery();
-  });
+  window.addEventListener('resize', () => state.gens.forEach((g) => g.grid && layoutGen(g)));
 
-  function renderGallery() {
-    state.images.forEach((im, i) => {
-      let fig = state.figs[i];
-      if (!fig) {
-        fig = document.createElement('figure');
-        fig.className = 'shot';
-        fig.innerHTML = `<button type="button" class="shot__frame"></button>
-          <figcaption><span class="shot__label"></span><button type="button" class="pick" aria-pressed="false">Выбрать</button></figcaption>`;
-        $('.shot__frame', fig).addEventListener('click', () => openViewer(i));
-        $('.pick', fig).addEventListener('click', () => togglePick(i));
-        state.figs[i] = fig;
+  function renderShot(gen, im, i) {
+    let fig = gen.figs[i];
+    if (!fig) {
+      fig = document.createElement('figure');
+      fig.className = 'shot';
+      fig.innerHTML = `<button type="button" class="shot__frame"></button>
+        <figcaption><span class="shot__label"></span><button type="button" class="pick" aria-pressed="false">Выбрать</button></figcaption>`;
+      gen.figs[i] = fig;
+    }
+    const key = keyOf(gen, i);
+    const num = gen.first + i;
+    fig.dataset.key = key;
+    const frame = $('.shot__frame', fig);
+    $('.shot__label', fig).innerHTML = `Вариант ${num}<small>${esc(im.label)}</small>`;
+    if (frame.dataset.status !== im.status) {
+      frame.dataset.status = im.status;
+      frame.classList.toggle('is-pending', im.status === 'pending');
+      frame.classList.toggle('is-failed', im.status === 'error');
+      frame.disabled = im.status !== 'done';
+      if (im.status === 'done') {
+        frame.innerHTML = `<img src="${im.thumb || im.src}" alt="Вариант ${num}: ${esc(im.label)}">${wmTag(im)}`;
+        frame.classList.add('is-new');
+        frame.setAttribute('aria-label', `Открыть вариант ${num}`);
+      } else if (im.status === 'pending') {
+        frame.innerHTML = '<span>Рисуем…</span>';
+      } else {
+        frame.innerHTML = '<span>Этот вариант не получился</span>';
       }
-      const frame = $('.shot__frame', fig);
-      $('.shot__label', fig).innerHTML = `Вариант ${i + 1}<small>${esc(im.label)}</small>`;
-      if (frame.dataset.status !== im.status) {
-        frame.dataset.status = im.status;
-        frame.classList.toggle('is-pending', im.status === 'pending');
-        frame.classList.toggle('is-failed', im.status === 'error');
-        frame.disabled = im.status !== 'done';
-        if (im.status === 'done') {
-          frame.innerHTML = `<img src="${im.thumb || im.src}" alt="Вариант ${i + 1}: ${esc(im.label)}">${wmTag(im)}`;
-          frame.classList.add('is-new');
-          frame.setAttribute('aria-label', `Открыть вариант ${i + 1}`);
-        } else if (im.status === 'pending') {
-          frame.innerHTML = '<span>Рисуем…</span>';
-        } else {
-          frame.innerHTML = '<span>Этот вариант не получился</span>';
-        }
-      }
-      const pick = $('.pick', fig);
-      pick.hidden = im.status !== 'done';
-      const on = state.picked.includes(i);
-      pick.setAttribute('aria-pressed', String(on));
-      pick.textContent = on ? 'Выбран' : 'Выбрать';
-      fig.classList.toggle('is-picked', on);
-    });
-    layoutGallery();
+    }
+    const pick = $('.pick', fig);
+    pick.hidden = im.status !== 'done';
+    const on = state.picked.includes(key);
+    pick.setAttribute('aria-pressed', String(on));
+    pick.textContent = on ? 'Выбран' : 'Выбрать';
+    fig.classList.toggle('is-picked', on);
   }
 
-  function togglePick(i) {
-    if (!state.images[i] || state.images[i].status !== 'done') return;
-    state.picked = state.picked.includes(i) ? state.picked.filter((x) => x !== i) : [...state.picked, i].sort((a, b) => a - b);
+  function renderGallery() {
+    const order = byNewest();
+    order.forEach((gen) => {
+      if (!gen.el) {
+        gen.el = document.createElement('section');
+        gen.el.className = 'gen';
+        gen.el.innerHTML = '<div class="gen__head"><span class="gen__source" hidden><img alt="Ваше фото"></span><div><h3 class="gen__title"></h3><p class="gen__meta"></p></div></div><div class="gallery"></div>';
+        gen.grid = $('.gallery', gen.el);
+        gen.figs = [];
+      }
+      $('.gen__title', gen.el).textContent = `Генерация ${gen.number} из ${state.limit}`;
+      $('.gen__meta', gen.el).textContent = genMeta(gen);
+      const source = $('.gen__source', gen.el);
+      source.hidden = !gen.sourceSrc;
+      if (gen.sourceSrc && $('img', source).getAttribute('src') !== gen.sourceSrc) $('img', source).src = gen.sourceSrc;
+      gen.images.forEach((im, i) => renderShot(gen, im, i));
+      layoutGen(gen);
+    });
+    order.forEach((gen, idx) => {
+      if (els.gallery.children[idx] !== gen.el) els.gallery.insertBefore(gen.el, els.gallery.children[idx] || null);
+    });
+    $$('.gen', els.gallery).forEach((el) => {
+      if (!state.gens.some((g) => g.el === el)) el.remove();
+    });
+    updateResultsUi();
+  }
+
+  els.gallery.addEventListener('click', (e) => {
+    const fig = e.target.closest('.shot');
+    if (!fig) return;
+    if (e.target.closest('.pick')) togglePick(fig.dataset.key);
+    else if (e.target.closest('.shot__frame')) openViewer(fig.dataset.key);
+  });
+
+  function togglePick(key) {
+    const shot = findShot(key);
+    if (!shot || shot.im.status !== 'done') return;
+    state.picked = state.picked.includes(key) ? state.picked.filter((k) => k !== key) : [...state.picked, key];
     renderGallery();
     renderChosen();
   }
 
   // Выбранные варианты в форме замера. Без выбранного варианта заказать замер нельзя.
   function renderChosen() {
-    const n = state.picked.length;
+    state.picked = state.picked.filter((k) => {
+      const s = findShot(k);
+      return s && s.im.status === 'done';
+    });
+    const list = state.picked.map(findShot).sort((a, b) => a.num - b.num);
+    const n = list.length;
     els.orderBtn.disabled = n === 0;
     $('#orderHint').hidden = n > 0;
-    const toOrder = $('#toOrderBtn');
-    if (toOrder) toOrder.textContent = n ? `Заказать замер (${n})` : 'Заказать замер';
+    els.toOrderBtn.textContent = n ? `Заказать замер (${n})` : 'Заказать замер';
     if (!n) {
-      els.orderChosen.innerHTML = '<p class="order__chosen-empty">Выберите один или несколько вариантов выше кнопкой «Выбрать» под картинкой. Без выбранного варианта заказать замер нельзя.</p>';
+      els.orderChosen.innerHTML = '<p class="order__chosen-empty">Выберите один или несколько вариантов выше кнопкой «Выбрать» под картинкой — можно из разных генераций. Без выбранного варианта заказать замер нельзя.</p>';
       return;
     }
     els.orderChosen.innerHTML = `<p class="order__chosen-title">${n === 1 ? 'Выбран 1 вариант' : `Выбрано вариантов: ${n}`}</p>
-      <ul class="chosen-list">${state.picked
-        .map((i) => {
-          const im = state.images[i];
-          return `<li class="chosen-item"><span class="thumb"><img src="${im.thumb || im.src}" alt="">${wmTag(im)}</span>
-            <span class="chosen-item__label">Вариант ${i + 1}<small>${esc(im.label)}</small></span>
-            <button type="button" class="chosen-item__remove" data-i="${i}" aria-label="Убрать вариант ${i + 1}">
-              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2"/></svg></button></li>`;
-        })
+      <ul class="chosen-list">${list
+        .map(
+          (s) => `<li class="chosen-item"><span class="thumb"><img src="${s.im.thumb || s.im.src}" alt="">${wmTag(s.im)}</span>
+            <span class="chosen-item__label">Вариант ${s.num}<small>${esc(s.im.label)}</small></span>
+            <button type="button" class="chosen-item__remove" data-key="${esc(keyOf(s.gen, s.i))}" aria-label="Убрать вариант ${s.num}">
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2"/></svg></button></li>`,
+        )
         .join('')}</ul>`;
   }
   els.orderChosen.addEventListener('click', (e) => {
     const b = e.target.closest('.chosen-item__remove');
-    if (b) togglePick(Number(b.dataset.i));
+    if (b) togglePick(b.dataset.key);
   });
 
-  // ---------- Просмотр ----------
-  const doneIndexes = () => state.images.map((im, i) => (im.status === 'done' ? i : -1)).filter((i) => i >= 0);
+  // ---------- Просмотр: листаются все варианты всех генераций ----------
+  const viewList = () => byNewest().flatMap((gen) => gen.images.map((im, i) => (im.status === 'done' ? keyOf(gen, i) : null)).filter(Boolean));
 
-  function openViewer(i) {
-    if (!state.images[i] || state.images[i].status !== 'done') return;
-    state.viewing = i;
+  function openViewer(key) {
+    const shot = findShot(key);
+    if (!shot || shot.im.status !== 'done') return;
+    state.viewing = key;
     renderViewer();
     if (!els.viewer.open) els.viewer.showModal();
   }
   function renderViewer() {
-    const i = state.viewing;
-    const im = state.images[i];
+    const shot = findShot(state.viewing);
+    if (!shot) return;
+    const { im, num, gen } = shot;
     els.viewerImg.src = im.src;
-    els.viewerImg.alt = `Вариант ${i + 1}: ${im.label}`;
+    els.viewerImg.alt = `Вариант ${num}: ${im.label}`;
     els.viewerWm.hidden = Boolean(im.watermarked);
-    els.viewerCaption.textContent = `Вариант ${i + 1}. ${im.label}`;
-    const on = state.picked.includes(i);
+    els.viewerCaption.textContent = `Вариант ${num}. ${im.label} · генерация ${gen.number}`;
+    const on = state.picked.includes(state.viewing);
     els.viewerPick.textContent = on ? 'Выбран — убрать из заказа' : 'Выбрать для замера';
     els.viewerPick.classList.toggle('btn--ghost', on);
     els.viewerPick.classList.toggle('btn--primary', !on);
-    const many = doneIndexes().length > 1;
+    const many = viewList().length > 1;
     $('#viewerPrev').hidden = !many;
     $('#viewerNext').hidden = !many;
   }
   function stepViewer(dir) {
-    const list = doneIndexes();
+    const list = viewList();
     const pos = list.indexOf(state.viewing);
     state.viewing = list[(pos + dir + list.length) % list.length];
     renderViewer();
@@ -692,14 +895,14 @@
 
   function setBusy(on) {
     state.busy = on;
-    els.nextBtn.disabled = on || (state.mode === 'live' && state.remaining === 0);
+    els.nextBtn.disabled = on || state.remaining === 0;
+    els.againBtn.disabled = on;
     els.results.setAttribute('aria-busy', String(on));
     if (state.step === STEPS.length - 1) els.nextBtn.textContent = on ? 'Рисуем…' : `Показать ${variantsText(state.count)}`;
   }
 
   // Отказ проверки: возвращаем клиента на шаг, где нужно поправить.
   function rejected(field, message) {
-    els.results.hidden = true;
     if (field === 'photo') {
       goTo(0, true);
       showPhotoError(message);
@@ -709,42 +912,80 @@
     }
   }
 
-  async function runDemo(params) {
+  function newGen(params) {
+    const first = state.gens.reduce((sum, g) => sum + g.images.length, 0) + 1;
+    return {
+      id: `${state.mode === 'demo' ? 'demo' : 'new'}-${Date.now().toString(36)}`,
+      number: state.used + 1,
+      first,
+      params,
+      status: 'checking',
+      sourceSrc: state.photo ? state.photo.thumb : null,
+      images: Array.from({ length: state.count }, (_, i) => ({ label: variantLabel(i, params.style, first - 1), status: 'pending' })),
+    };
+  }
+  function removeGen(gen) {
+    state.gens = state.gens.filter((g) => g !== gen);
+    if (gen.el) gen.el.remove();
+  }
+
+  async function runDemo(gen) {
+    const params = gen.params;
     await sleep(1400);
     loaderChecked();
-    state.images.forEach((im) => (im.status = 'pending'));
     await Promise.all(
-      state.images.map(async (im, i) => {
+      gen.images.map(async (im, i) => {
         await sleep(1600 + i * 900 + Math.random() * 700);
-        const base = params.style === 'auto' ? `img/photos/${autoStyles[i % autoStyles.length]}-1` : `img/photos/${params.style}-${(i % 5) + 1}`;
+        // Примеры: у следующей генерации — другие фото, стиль «Подберём сами» продолжает список стилей.
+        const k = gen.first - 1 + i;
+        const base =
+          params.style === 'auto'
+            ? `img/photos/${autoStyleAt(i, gen.first - 1)}-${(Math.floor(k / autoStyles.length) % 5) + 1}`
+            : `img/photos/${params.style}-${(k % 5) + 1}`;
         im.src = `${base}.jpg`;
         im.thumb = `${base}-sm.jpg`;
         im.status = 'done';
         renderGallery();
-        updateProgress();
+        updateProgress(gen);
       }),
     );
+    gen.status = 'done';
   }
 
-  function applyJob(job) {
-    state.jobId = job.id;
+  function applyJob(gen, job) {
+    const localSource = gen.sourceSrc && gen.sourceSrc.startsWith('data:') ? gen.sourceSrc : null;
+    Object.assign(gen, genFromJob(job));
+    if (localSource) gen.sourceSrc = localSource;
     if (job.status !== 'checking') loaderChecked();
-    state.images = job.images.map((im) => ({
-      label: im.label,
-      status: im.status,
-      watermarked: im.watermarked,
-      src: im.url ? (/^https?:/.test(im.url) ? im.url : API + im.url) : null,
-      thumb: im.url && /\/img\/photos\/.+\.jpg$/.test(im.url) ? API + im.url.replace(/\.jpg$/, '-sm.jpg') : null,
-    }));
     renderGallery();
-    updateProgress();
+    updateProgress(gen);
   }
 
-  async function runServer(params, wishes) {
+  async function pollJob(gen, job) {
+    const deadline = Date.now() + 12 * 60 * 1000;
+    let failures = 0;
+    while (job.status === 'checking' || job.status === 'running') {
+      if (Date.now() > deadline) throw new Error('Генерация идёт слишком долго. Обновите страницу чуть позже — готовые варианты появятся здесь.');
+      await sleep(3000);
+      try {
+        const res = await fetchWithTimeout(`${API}/api/jobs/${job.id}`, { headers: apiHeaders() }, 15000);
+        const next = await res.json();
+        if (!res.ok) throw new Error(next.error);
+        job = next;
+        failures = 0;
+        applyJob(gen, job);
+      } catch {
+        if (++failures >= 6) throw new Error('Связь с сервером прервалась. Обновите страницу — готовые варианты сохранятся.');
+      }
+    }
+    return job;
+  }
+
+  async function runServer(gen, params, wishes) {
     const body = { params, wishes, photo: state.photo ? state.photo.dataUrl : undefined, photoSize: state.photo ? { w: state.photo.w, h: state.photo.h } : undefined, captcha: captchaToken() };
     let r;
     try {
-      r = await fetchWithTimeout(`${API}/api/jobs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, 60000);
+      r = await fetchWithTimeout(`${API}/api/jobs`, { method: 'POST', headers: apiHeaders(true), body: JSON.stringify(body) }, 60000);
     } catch {
       throw new Error('Сервер не отвечает. Проверьте интернет и попробуйте ещё раз.');
     }
@@ -752,36 +993,54 @@
     if (state.captchaWidget !== null && window.smartCaptcha) window.smartCaptcha.reset(state.captchaWidget);
     if (!r.ok) {
       if (data.field) return { rejected: true, field: data.field, error: data.error };
-      if (r.status === 429) state.remaining = 0;
+      if (data.limit) {
+        state.remaining = 0;
+        state.used = state.limit;
+      }
       throw new Error(data.error || 'Сервер вернул ошибку. Попробуйте ещё раз.');
     }
-    if (typeof data.remaining === 'number') state.remaining = data.remaining;
-    applyJob(data);
-
-    const deadline = Date.now() + 12 * 60 * 1000;
-    let failures = 0;
-    let job = data;
-    while (job.status === 'checking' || job.status === 'running') {
-      if (Date.now() > deadline) throw new Error('Генерация идёт слишком долго. Попробуйте ещё раз чуть позже.');
-      await sleep(3000);
-      try {
-        const res = await fetchWithTimeout(`${API}/api/jobs/${job.id}`, {}, 15000);
-        const next = await res.json();
-        if (!res.ok) throw new Error(next.error);
-        job = next;
-        failures = 0;
-        applyJob(job);
-      } catch {
-        if (++failures >= 6) throw new Error('Связь с сервером прервалась. Обновите страницу и попробуйте ещё раз.');
-      }
+    gen.counted = true;
+    if (typeof data.remaining === 'number') {
+      state.remaining = data.remaining;
+      state.used = state.limit - data.remaining;
     }
+    applyJob(gen, data);
+    const job = await pollJob(gen, data);
     if (job.status === 'rejected') return { rejected: true, field: job.field, error: job.error };
     if (job.status === 'error') throw new Error(job.error || 'Не получилось сгенерировать варианты.');
     return {};
   }
 
+  // Сервер не засчитывает отклонённые и неудавшиеся генерации — сверяем счётчик.
+  async function syncQuota() {
+    try {
+      const r = await fetchWithTimeout(`${API}/api/config`, { headers: apiHeaders() }, 8000);
+      const c = await r.json();
+      if (typeof c.remaining === 'number') {
+        state.limit = c.limit || state.limit;
+        state.used = c.used || 0;
+        state.remaining = c.remaining;
+      }
+    } catch {}
+  }
+
+  async function finishGeneration() {
+    stopLoader();
+    setBusy(false);
+    if (state.mode === 'demo') saveDemo();
+    else await syncQuota();
+    renderGallery();
+    renderChosen();
+    applyQuota();
+  }
+
   async function generate() {
     if (state.busy) return;
+    if (state.remaining === 0) {
+      applyQuota();
+      scrollTo(els.limitDone);
+      return;
+    }
     const w = updateWishes();
     if (!w.ok) {
       els.wishes.focus();
@@ -790,57 +1049,76 @@
     const params = readParams();
     showResultError('');
     showPhotoError('');
-    state.picked = [];
-    state.jobId = null;
-    state.images = Array.from({ length: state.count }, (_, i) => ({
-      label: variantLabel(i, params.style),
-      status: 'pending',
-    }));
-    els.gallery.innerHTML = '';
-    els.gallery.dataset.cols = '';
-    state.figs = [];
-    els.results.hidden = false;
-    els.resultsFoot.hidden = true;
-    els.order.hidden = true;
-    els.resultsSource.hidden = !state.photo;
-    if (state.photo) $('#resultsSourceImg').src = state.photo.dataUrl;
-    els.resultsSub.textContent =
-      state.mode === 'live'
-        ? 'Нажмите на картинку, чтобы рассмотреть. Отметьте ту, что нравится.'
-        : 'Демо: показываем примеры в выбранном стиле. На рабочем сайте здесь будет ваша ванная после ремонта.';
-    renderChosen();
+    const gen = newGen(params);
+    state.gens.push(gen);
+    if (state.mode === 'demo') {
+      state.used++;
+      state.remaining = Math.max(0, state.limit - state.used);
+    }
+    // Отказ или ни одной картинки — попытка не засчитывается.
+    const undo = () => {
+      removeGen(gen);
+      if (gen.counted) {
+        state.used = Math.max(0, state.used - 1);
+        state.remaining = state.limit - state.used;
+      }
+    };
     setBusy(true);
+    renderGallery();
+    renderChosen();
     startLoader(params);
+    updateProgress(gen);
     scrollTo(els.results);
     try {
-      const out = state.mode === 'demo' ? await runDemo(params) : await runServer(params, w.text);
+      const out = state.mode === 'demo' ? await runDemo(gen) : await runServer(gen, params, w.text);
       if (out && out.rejected) {
+        undo();
         stopLoader();
         rejected(out.field, out.error);
-        return;
       }
-      els.resultsFoot.hidden = false;
-      els.order.hidden = false;
     } catch (err) {
+      if (!gen.images.some((im) => im.status === 'done')) undo();
       showResultError(err.message);
-      if (state.images.some((im) => im.status === 'done')) {
-        els.resultsFoot.hidden = false;
-        els.order.hidden = false;
-      }
     } finally {
-      stopLoader();
-      setBusy(false);
-      updateLimitNote();
+      await finishGeneration();
     }
   }
 
-  $('#toOrderBtn').addEventListener('click', () => {
+  async function resumeJob(gen) {
+    setBusy(true);
+    startLoader(gen.params || {});
+    if (gen.status !== 'checking') loaderChecked();
+    updateProgress(gen);
+    updateResultsUi();
+    try {
+      const job = await pollJob(gen, { id: gen.id, status: gen.status });
+      if (job.status === 'rejected' || job.status === 'error') {
+        removeGen(gen);
+        if (job.status === 'error') showResultError(job.error);
+      }
+    } catch (err) {
+      showResultError(err.message);
+    } finally {
+      await finishGeneration();
+    }
+  }
+
+  els.toOrderBtn.addEventListener('click', () => {
     els.order.hidden = false;
     scrollTo(els.order);
   });
-
-  $('#againBtn').addEventListener('click', () => {
-    goTo(1, true);
+  // Новая попытка: сразу к параметрам; если фото нет (например, после перезагрузки в демо) — к шагу с фото.
+  els.againBtn.addEventListener('click', () => goTo(state.photo || state.noPhoto ? 1 : 0, true));
+  els.limitToResults.addEventListener('click', () => scrollTo(els.results));
+  els.demoReset.addEventListener('click', () => {
+    store.del(DEMO_KEY);
+    location.reload();
+  });
+  // Генерации кончились — кнопка «Загрузить фото» на первом экране ведёт к вариантам.
+  $('label[for="heroPhoto"]').addEventListener('click', (e) => {
+    if (!isLocked()) return;
+    e.preventDefault();
+    scrollTo(doneCount() ? els.results : els.limitDone);
   });
 
   // ---------- Заказ замера ----------
@@ -872,8 +1150,7 @@
       time: fd.get('time') || 'any',
       works: fd.getAll('works'),
       consent: true,
-      jobId: state.jobId,
-      imageIndexes: state.picked,
+      picks: state.picked.map(findShot).filter(Boolean).map((s) => ({ job: s.gen.id, index: s.i })),
     };
     els.orderBtn.disabled = true;
     els.orderBtn.textContent = 'Отправляем…';
@@ -881,7 +1158,7 @@
       if (state.mode === 'demo') {
         await sleep(600);
       } else {
-        const r = await fetchWithTimeout(`${API}/api/leads`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 20000);
+        const r = await fetchWithTimeout(`${API}/api/leads`, { method: 'POST', headers: apiHeaders(true), body: JSON.stringify(payload) }, 20000);
         const data = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(data.error || 'Не удалось отправить заявку. Позвоните нам.');
       }
@@ -906,5 +1183,6 @@
   renderChosen();
   goTo(0);
   updateWishes();
+  updateLimitNote();
   detectMode();
 })();

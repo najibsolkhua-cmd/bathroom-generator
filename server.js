@@ -33,12 +33,12 @@ const CFG = {
   host: env.HOST || '127.0.0.1',
   apiKey: env.OPENAI_API_KEY || '',
   baseURL: (env.OPENAI_BASE_URL || 'https://api.proxyapi.ru/openai/v1').replace(/\/$/, ''),
-  model: env.IMAGE_MODEL || 'gpt-image-2',
+  model: env.IMAGE_MODEL || 'gpt-image-2.5-sunburst',
   quality: env.IMAGE_QUALITY || 'high',
   size: env.IMAGE_SIZE || 'auto', // auto — по пропорциям фото клиента
   outputFormat: env.IMAGE_FORMAT || 'jpeg',
   inputFidelity: env.IMAGE_INPUT_FIDELITY || '', // high — если модель поддерживает (точнее сохраняет фото)
-  guardModel: env.GUARD_MODEL || 'gpt-5.4-mini',
+  guardModel: env.GUARD_MODEL || 'gpt-6-luna',
   guard: env.GUARD !== '0',
   verifyOutput: env.VERIFY_OUTPUT !== '0',
   watermark: env.WATERMARK !== '0',

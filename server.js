@@ -46,7 +46,7 @@ const CFG = {
   imagesPerJob: clamp(Number(env.IMAGES_PER_JOB) || 5, 1, 5),
   maxParallel: clamp(Number(env.MAX_PARALLEL) || 4, 1, 10),
   dailyLimitPerIp: Number(env.DAILY_LIMIT_PER_IP) || 3,
-  globalDailyLimit: Number(env.GLOBAL_DAILY_LIMIT) || 200,
+  globalDailyLimit: Number(env.GLOBAL_DAILY_LIMIT) || 30,
   keepDays: Number(env.KEEP_DAYS) || 14,
   publicUrl: (env.PUBLIC_URL || '').replace(/\/$/, ''),
   corsOrigins: (env.CORS_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean),

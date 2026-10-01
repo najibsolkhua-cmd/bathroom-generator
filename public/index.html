@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Ванная мечты по фото — конструктор</title>
-  <meta name="description" content="Сфотографируйте ванную, выберите стиль и сантехнику — покажем 5 фотореалистичных вариантов ремонта, которые можно построить.">
+  <meta name="description" content="Сфотографируйте ванную, выберите стиль и сантехнику — покажем 3 фотореалистичных варианта ремонта, которые можно построить.">
   <meta name="theme-color" content="#1F4E4B">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231F4E4B'/%3E%3Cpath d='M4 16h24M16 4v24' stroke='%23EEF1EF' stroke-width='2'/%3E%3C/svg%3E">
   <link rel="preload" href="fonts/onest-cyrillic-400-normal.woff2" as="font" type="font/woff2" crossorigin>
@@ -46,7 +46,7 @@
       <div class="wrap hero__inner">
         <div class="hero__text">
           <h1>Сфотографируйте ванную — покажем, какой она станет</h1>
-          <p class="hero__lead">Загрузите фото, выберите стиль и сантехнику. Через пару минут покажем <span data-variants>5 вариантов</span> ремонта именно вашего помещения. Понравится — приедем на замер.</p>
+          <p class="hero__lead">Загрузите фото, выберите стиль и сантехнику. Через пару минут покажем <span data-variants>3 варианта</span> ремонта именно вашего помещения. Понравится — приедем на замер.</p>
           <div class="hero__cta">
             <label class="btn btn--primary btn--large" for="heroPhoto">
               <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.6" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>
@@ -56,7 +56,7 @@
             <a class="btn btn--ghost btn--large" href="#how">Как это работает</a>
           </div>
           <ul class="hero__facts">
-            <li><strong>2–3 минуты</strong> на 5 вариантов</li>
+            <li><strong>2–3 минуты</strong> на <span data-variants>3 варианта</span></li>
             <li><strong>Только то,</strong> что реально построить</li>
             <li><strong>Бесплатно</strong> и без регистрации</li>
           </ul>
@@ -79,8 +79,8 @@
         <ol class="how__steps">
           <li><span class="how__num">1</span><h3>Загрузите фото</h3><p>Снимите ванную от двери. Сохраним стены, окна и трубы — поменяем только отделку.</p></li>
           <li><span class="how__num">2</span><h3>Выберите параметры</h3><p>Стиль, цвет, сантехнику, свет и уровень отделки. Можно дописать пожелания своими словами.</p></li>
-          <li><span class="how__num">3</span><h3>Получите 5 вариантов</h3><p>Фотореалистичные картинки вашей ванной. Только решения, которые можно купить и смонтировать.</p></li>
-          <li><span class="how__num">4</span><h3>Закажите замер</h3><p>Отметьте понравившийся вариант. Прораб приедет, всё измерит и посчитает стоимость.</p></li>
+          <li><span class="how__num">3</span><h3>Получите <span data-variants>3 варианта</span></h3><p>Фотореалистичные картинки вашей ванной. Не подошло — поменяйте параметры: можно попробовать до <span data-limit>3</span> раз.</p></li>
+          <li><span class="how__num">4</span><h3>Закажите замер</h3><p>Отметьте понравившиеся варианты из любой попытки. Прораб приедет, всё измерит и посчитает стоимость.</p></li>
         </ol>
       </div>
     </section>
@@ -88,6 +88,16 @@
     <!-- Конструктор -->
     <section class="generator" id="generator">
       <div class="wrap">
+        <!-- Все генерации сделаны: конструктор закрыт, остаются варианты и заказ замера -->
+        <div class="limit-done" id="limitDone" hidden>
+          <h2 class="section-title" id="limitDoneTitle">Вы использовали все 3 генерации</h2>
+          <p id="limitDoneText"></p>
+          <div class="limit-done__actions">
+            <button type="button" class="btn btn--primary btn--large" id="limitToResults">Выбрать вариант для замера</button>
+            <button type="button" class="link-button" id="demoReset" hidden>Начать демо заново</button>
+          </div>
+        </div>
+        <div id="generatorBody">
         <h2 class="section-title">Соберите ванную за 5 шагов</h2>
         <div class="generator__grid">
           <form class="wizard" id="wizard" novalidate>
@@ -158,6 +168,7 @@
             <p class="summary__note" id="limitNote">Обычно генерация занимает 2–3 минуты.</p>
           </aside>
         </div>
+        </div>
       </div>
     </section>
 
@@ -167,11 +178,7 @@
         <div class="results__head">
           <div>
             <h2 class="section-title">Ваши варианты</h2>
-            <p class="results__sub" id="resultsSub">Нажмите на картинку, чтобы рассмотреть. Отметьте один или несколько вариантов для замера.</p>
-          </div>
-          <div class="results__source" id="resultsSource" hidden>
-            <img id="resultsSourceImg" alt="Ваше фото">
-            <span>Ваше фото</span>
+            <p class="results__sub" id="resultsSub">Нажмите на картинку, чтобы рассмотреть. Отметьте понравившиеся варианты для замера — можно из разных генераций.</p>
           </div>
         </div>
 
@@ -179,18 +186,18 @@
           <div class="loader__wall" id="loaderWall" aria-hidden="true"></div>
           <div class="loader__text">
             <p class="loader__status" id="loaderStatus">Проверяем фото и пожелания</p>
-            <p class="loader__meta"><span id="loaderDone">Готово 0 из 5</span><span id="loaderTime">0:00</span></p>
+            <p class="loader__meta"><span id="loaderDone">Готово 0 из 3</span><span id="loaderTime">0:00</span></p>
           </div>
         </div>
 
         <p class="result-error" id="resultError" role="alert" hidden></p>
 
-        <div class="gallery" id="gallery"></div>
+        <div class="gens" id="gallery"></div>
 
         <div class="results__foot" id="resultsFoot" hidden>
           <p class="disclaimer">Это визуализация идеи. Точные материалы, размеры и смету подготовит прораб после замера.</p>
           <div class="results__actions">
-            <button type="button" class="btn btn--ghost" id="againBtn">Изменить параметры</button>
+            <button type="button" class="btn btn--ghost" id="againBtn">Ещё варианты</button>
             <button type="button" class="btn btn--primary" id="toOrderBtn">Заказать замер</button>
           </div>
         </div>
@@ -242,7 +249,8 @@
         <h2 class="section-title">Частые вопросы</h2>
         <div class="faq__list">
           <details><summary>Точно ли можно сделать как на картинке?</summary><p>Генератор рисует только то, что продаётся в строительных магазинах и монтируется обычной бригадой: стандартная плитка, сантехника, мебель. Перед ремонтом прораб проверит вариант на замере.</p></details>
-          <details><summary>Что будет с моим фото?</summary><p>Фото нужно только для создания вариантов и подготовки к замеру. Мы не публикуем его и удаляем через две недели. Данные о месте съёмки из фото удаляются ещё в браузере.</p></details>
+          <details><summary>Что будет с моим фото?</summary><p>Фото нужно только для создания вариантов и подготовки к замеру. Мы не публикуем его и удаляем через месяц. Данные о месте съёмки из фото удаляются ещё в браузере.</p></details>
+          <details><summary>Сколько раз можно попробовать?</summary><p>До <span data-limit>3</span> раз, в каждой попытке — <span data-variants>3 варианта</span>. Все варианты остаются на странице: выберите любые из них и закажите замер. На замере прораб поможет доработать проект.</p></details>
           <details><summary>Сколько это стоит?</summary><p>Подобрать варианты — бесплатно. Замер и расчёт стоимости ремонта обсудим по телефону.</p></details>
           <details><summary>Почему нельзя нарисовать что-то кроме ванной?</summary><p>Генератор настроен только на ванные и санузлы. Так картинки получаются реалистичнее, а нейросеть не отвлекается на лишнее.</p></details>
         </div>

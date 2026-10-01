@@ -196,15 +196,21 @@
     'Как в дорогом отеле',
   ];
 
-  // Стили для «Подберём сами»: каждый из 5 вариантов — в своём стиле.
+  // Стили для «Подберём сами»: каждый вариант — в своём стиле. Следующая генерация того же
+  // человека продолжает список (offset), поэтому стили не повторяются: 1-я — минимализм, сканди,
+  // джапанди; 2-я — неоклассика, как в отеле, минимализм и так далее.
   const autoStyles = ['minimal', 'scandi', 'japandi', 'neoclassic', 'hotel'];
 
-  // Подписи пяти вариантов (одни и те же на сайте и на сервере).
+  // Подписи вариантов (одни и те же на сайте и на сервере). В генерации 3 варианта — первые три подачи.
   const variants = ['Точно по вашему выбору', 'Другая раскладка плитки', 'С акцентной стеной', 'Больше хранения', 'Вечерний свет'];
 
-  function variantLabel(index, style) {
+  function autoStyleAt(index, offset) {
+    return autoStyles[((offset || 0) + index) % autoStyles.length];
+  }
+
+  function variantLabel(index, style, offset) {
     if (style === 'auto') {
-      const id = autoStyles[index % autoStyles.length];
+      const id = autoStyleAt(index, offset);
       return groups.style.items.find((x) => x.id === id).label;
     }
     return variants[index % variants.length];
@@ -216,5 +222,5 @@
     return SIZE_ORDER.indexOf(size) >= SIZE_ORDER.indexOf(minSize);
   }
 
-  return { groups, steps, wishHints, sizeAllows, autoStyles, variants, variantLabel, WISHES_MAX: 300 };
+  return { groups, steps, wishHints, sizeAllows, autoStyles, autoStyleAt, variants, variantLabel, WISHES_MAX: 300 };
 });
